@@ -1,0 +1,2867 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Water Curtain Controller</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@300;400;600&display=swap");
+      :root {
+        --bg: #0a0f1a;
+        --surface: #111827;
+        --card: #1a2235;
+        --border: #1e3a5f;
+        --accent: #00d4ff;
+        --danger: #ff4466;
+        --success: #00e5a0;
+        --warn: #ffaa00;
+        --text: #e0eeff;
+        --muted: #6b8caa;
+        --mono: "JetBrains Mono", monospace;
+        --sans: "Space Grotesk", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        border-bottom: 1px solid var(--border);
+        padding: 12px 24px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--surface);
+      }
+      header h1 {
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        color: var(--accent);
+        text-transform: uppercase;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--danger);
+      }
+      .dot.on {
+        background: var(--success);
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 310px 1fr;
+        flex: 1;
+        overflow: hidden;
+      }
+      .panel-left {
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        max-height: calc(100vh - 48px);
+      }
+      .sec {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .sec-title {
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+      label {
+        font-size: 11px;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 4px;
+      }
+      input[type="text"],
+      input[type="number"] {
+        width: 100%;
+        background: var(--card);
+        border: 1px solid var(--border);
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 12px;
+        padding: 7px 9px;
+        border-radius: 5px;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      input:focus {
+        border-color: var(--accent);
+      }
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--accent);
+        cursor: pointer;
+        margin-top: 2px;
+      }
+      .val-label {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--accent);
+        text-align: right;
+        margin-top: 2px;
+      }
+      .row2 {
+        display: flex;
+        gap: 8px;
+      }
+      .row2 > * {
+        flex: 1;
+      }
+      .dropzone {
+        border: 2px dashed var(--border);
+        border-radius: 6px;
+        padding: 20px;
+        text-align: center;
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+        position: relative;
+      }
+      .dropzone:hover,
+      .dropzone.drag {
+        border-color: var(--accent);
+        background: rgba(0, 212, 255, 0.04);
+      }
+      .dropzone input {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+        width: 100%;
+        height: 100%;
+      }
+      .dropzone p {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .dropzone p span {
+        color: var(--accent);
+      }
+      #thumb-preview {
+        margin-top: 8px;
+        display: none;
+        width: 100%;
+        border-radius: 5px;
+        border: 1px solid var(--border);
+      }
+      .seg-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 8px;
+      }
+      .seg-row > label:first-child {
+        margin: 0;
+        color: var(--text);
+        font-size: 11px;
+      }
+      .tw {
+        position: relative;
+        width: 34px;
+        height: 18px;
+        background: var(--border);
+        border-radius: 9px;
+        display: inline-block;
+        transition: background 0.2s;
+        flex-shrink: 0;
+        cursor: pointer;
+      }
+      .tw.on {
+        background: var(--accent);
+      }
+      .tw input {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+      .tw-knob {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform 0.2s;
+        pointer-events: none;
+      }
+      .tw.on .tw-knob {
+        transform: translateX(16px);
+      }
+      .btn {
+        display: block;
+        width: 100%;
+        padding: 10px;
+        border: none;
+        border-radius: 5px;
+        font-family: var(--sans);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          opacity 0.15s,
+          transform 0.1s;
+        letter-spacing: 0.03em;
+      }
+      .btn:active {
+        transform: scale(0.98);
+      }
+      .btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: #000;
+      }
+      .btn-danger {
+        background: var(--danger);
+        color: #fff;
+      }
+      .btn-ghost {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+      .btn-sm {
+        padding: 6px 12px;
+        width: auto;
+        font-size: 11px;
+        display: inline-block;
+      }
+      .progress-bar {
+        height: 3px;
+        background: var(--border);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-top: 8px;
+      }
+      .progress-fill {
+        height: 100%;
+        background: var(--accent);
+        border-radius: 2px;
+        transition: width 0.1s;
+        width: 0%;
+      }
+      #log {
+        font-family: var(--mono);
+        font-size: 10px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 8px;
+        height: 120px;
+        overflow-y: auto;
+        line-height: 1.8;
+      }
+      .log-ok {
+        color: var(--success);
+      }
+      .log-err {
+        color: var(--danger);
+      }
+      .log-info {
+        color: var(--accent);
+      }
+      .log-warn {
+        color: var(--warn);
+      }
+      input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+        accent-color: var(--accent);
+      }
+      .panel-right {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        height: calc(100vh - 48px);
+      }
+      .panel-preview {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg);
+        flex-shrink: 0;
+      }
+      .preview-hdr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+      .preview-title {
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .badge {
+        font-family: var(--mono);
+        font-size: 10px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+      #pixel-canvas {
+        image-rendering: pixelated;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        width: 100%;
+        display: block;
+      }
+      .panel-sim {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 14px 18px 6px;
+        background: #050a12;
+        overflow: hidden;
+        min-height: 0;
+      }
+      .sim-hdr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        flex-shrink: 0;
+      }
+      .stats {
+        display: flex;
+        gap: 20px;
+      }
+      .stat {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .stat-label {
+        font-size: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+      }
+      .stat-val {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--accent);
+      }
+      #sim-canvas {
+        flex: 1;
+        border: 1px solid #0d2040;
+        border-radius: 5px;
+        display: block;
+        background: #020810;
+        width: 100%;
+        min-height: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="dot" id="conn-dot"></div>
+      <h1>Water Curtain Controller</h1>
+      <span
+        id="conn-label"
+        style="font-size: 10px; color: var(--muted); margin-left: auto"
+        >Disconnected</span
+      >
+    </header>
+    <div class="layout">
+      <div class="panel-left">
+        <div class="sec">
+          <div class="sec-title">ESP32 Connection</div>
+          <label>IP Address</label>
+          <input type="text" id="ip" value="192.168.1.241" />
+          <div style="margin-top: 6px"></div>
+          <label>Port</label>
+          <input type="number" id="port" value="3333" />
+          <div style="margin-top: 8px; display: flex; gap: 6px">
+            <button class="btn btn-primary btn-sm" onclick="connectESP()">
+              Connect
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="disconnectESP()">
+              Disconnect
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="testValves()">
+              Test valves
+            </button>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-title">Scan ESP</div>
+          <label>Scan IP Range (192.168.1.x)</label>
+          <div style="display: flex; gap: 6px; align-items: center">
+            <input
+              type="number"
+              id="scan-ip-from"
+              value="1"
+              min="1"
+              max="254"
+              style="flex: 1"
+              placeholder="From"
+            />
+            <span style="color: var(--muted)">—</span>
+            <input
+              type="number"
+              id="scan-ip-to"
+              value="254"
+              min="1"
+              max="254"
+              style="flex: 1"
+              placeholder="To"
+            />
+          </div>
+          <div style="margin-top: 8px; display: flex; gap: 6px">
+            <button
+              class="btn btn-primary btn-sm"
+              onclick="scanESPNetwork()"
+              style="flex: 1"
+            >
+              🔍 Scan Network
+            </button>
+            <button
+              class="btn btn-ghost btn-sm"
+              onclick="diagnosticTest()"
+              style="flex: 1"
+            >
+              🔧 Test
+            </button>
+          </div>
+          <div
+            id="scan-results"
+            style="
+              margin-top: 8px;
+              font-size: 10px;
+              background: var(--card);
+              border: 1px solid var(--border);
+              border-radius: 5px;
+              padding: 8px;
+              display: none;
+              max-height: 120px;
+              overflow-y: auto;
+            "
+          ></div>
+          <label style="margin-top: 8px; display: block">Found Devices</label>
+          <select
+            id="scan-devices"
+            style="
+              width: 100%;
+              padding: 7px 9px;
+              background: var(--card);
+              border: 1px solid var(--border);
+              color: var(--text);
+              border-radius: 5px;
+              font-size: 11px;
+            "
+            onchange="selectScannedESP(this.value)"
+          >
+            <option value="">— No devices found —</option>
+          </select>
+        </div>
+
+        <div class="sec">
+          <div class="sec-title">⚙️ Config Device (UDP 8888)</div>
+
+          <!-- Device selection from scanned devices -->
+          <label style="display: block; margin-bottom: 8px"
+            >Select Device</label
+          >
+          <div style="display: flex; gap: 6px; margin-bottom: 8px">
+            <select
+              id="config-device-select"
+              style="
+                flex: 1;
+                padding: 7px 9px;
+                background: var(--card);
+                border: 1px solid var(--border);
+                color: var(--text);
+                border-radius: 5px;
+                font-size: 11px;
+              "
+              onchange="selectConfigDevice(this.value)"
+            >
+              <option value="">— Select device (or enter IP) —</option>
+            </select>
+          </div>
+
+          <!-- Manual IP entry -->
+          <label style="display: block; margin-bottom: 4px"
+            >or IP Address</label
+          >
+          <input
+            type="text"
+            id="config-device-ip"
+            placeholder="192.168.1.241"
+            style="
+              width: 100%;
+              padding: 7px 9px;
+              background: var(--card);
+              border: 1px solid var(--border);
+              color: var(--text);
+              border-radius: 5px;
+              font-size: 11px;
+              box-sizing: border-box;
+              margin-bottom: 8px;
+            "
+          />
+
+          <!-- Get Info button -->
+          <button
+            class="btn btn-primary btn-sm"
+            onclick="configGetInfo()"
+            style="width: 100%; margin-bottom: 8px"
+          >
+            🔄 Get Device Info
+          </button>
+
+          <!-- Device info display -->
+          <div
+            id="config-info"
+            style="
+              background: var(--card);
+              border: 1px solid var(--border);
+              border-radius: 5px;
+              padding: 8px;
+              font-size: 10px;
+              font-family: &quot;Courier New&quot;, monospace;
+              color: var(--muted);
+              margin-bottom: 8px;
+              max-height: 80px;
+              overflow-y: auto;
+              display: none;
+            "
+          ></div>
+
+          <!-- Configuration controls -->
+          <div
+            style="
+              margin-top: 12px;
+              padding-top: 12px;
+              border-top: 1px solid var(--border);
+            "
+          ></div>
+
+          <!-- Reset button -->
+          <button
+            class="btn btn-ghost btn-sm"
+            onclick="configReset()"
+            style="width: 100%; margin-top: 12px"
+          >
+            ⚠️ Reset Device
+          </button>
+        </div>
+
+        <div class="sec">
+          <div class="sec-title">Image Source</div>
+          <div class="dropzone" id="dropzone">
+            <input
+              type="file"
+              accept="image/*"
+              id="file-input"
+              onchange="loadFile(this)"
+            />
+            <p>Drop image here<br /><span>or click to browse</span></p>
+          </div>
+          <img id="thumb-preview" />
+        </div>
+        <div class="sec">
+          <div class="sec-title">Background Removal</div>
+          <div class="seg-row">
+            <label>Remove dark background</label>
+            <label class="tw on" id="tw-rmbg"
+              ><input
+                type="checkbox"
+                id="cb-rmbg"
+                checked
+                onchange="toggleOpt('rmbg')" /><span class="tw-knob"></span
+            ></label>
+          </div>
+          <div class="seg-row">
+            <label>Invert (remove bright bg)</label>
+            <label class="tw" id="tw-inv"
+              ><input
+                type="checkbox"
+                id="cb-inv"
+                onchange="toggleOpt('inv')" /><span class="tw-knob"></span
+            ></label>
+          </div>
+          <div class="seg-row">
+            <label>Saturation boost</label>
+            <label class="tw on" id="tw-sat"
+              ><input
+                type="checkbox"
+                id="cb-sat"
+                checked
+                onchange="toggleOpt('sat')" /><span class="tw-knob"></span
+            ></label>
+          </div>
+          <div class="seg-row">
+            <label>Flip horizontal</label>
+            <label class="tw" id="tw-fliph"
+              ><input
+                type="checkbox"
+                id="cb-fliph"
+                onchange="toggleOpt('fliph')" /><span class="tw-knob"></span
+            ></label>
+          </div>
+          <div class="seg-row">
+            <label>Flip vertical</label>
+            <label class="tw on" id="tw-flipv"
+              ><input
+                type="checkbox"
+                id="cb-flipv"
+                checked
+                onchange="toggleOpt('flipv')" /><span class="tw-knob"></span
+            ></label>
+          </div>
+          <div style="margin-top: 10px">
+            <label
+              >Threshold
+              <span
+                id="thr-lbl"
+                style="color: var(--accent); font-family: var(--mono)"
+                >40</span
+              ></label
+            >
+            <input
+              type="range"
+              id="thr"
+              min="5"
+              max="230"
+              value="40"
+              oninput="onThr()"
+            />
+          </div>
+          <div style="margin-top: 6px">
+            <label
+              >Dilation
+              <span
+                id="dil-lbl"
+                style="color: var(--accent); font-family: var(--mono)"
+                >1</span
+              >px</label
+            >
+            <input
+              type="range"
+              id="dil"
+              min="0"
+              max="5"
+              value="1"
+              step="1"
+              oninput="onDil()"
+            />
+          </div>
+          <div style="margin-top: 8px; display: flex; gap: 6px">
+            <button class="btn btn-ghost btn-sm" onclick="reprocess()">
+              ↺ Reprocess
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="autoThreshold()">
+              Auto
+            </button>
+          </div>
+        </div>
+        <div class="sec">
+          <div class="sec-title">Physics & Timing</div>
+          <label>Drop height (cm)</label>
+          <input
+            type="number"
+            id="height"
+            value="150"
+            min="30"
+            max="600"
+            oninput="recalc()"
+          />
+          <div style="margin-top: 8px"></div>
+          <label>Row interval (ms)</label>
+          <input
+            type="range"
+            id="adv"
+            min="20"
+            max="400"
+            value="80"
+            oninput="recalc()"
+          />
+          <div class="val-label" id="adv-lbl">80 ms</div>
+          <div style="margin-top: 8px"></div>
+          <label>Sim speed</label>
+          <input
+            type="range"
+            id="speed"
+            min="0.1"
+            max="4"
+            step="0.1"
+            value="1"
+            oninput="updateSpeed()"
+          />
+          <div class="val-label" id="speed-lbl">1.0×</div>
+          <div style="margin-top: 8px" class="row2">
+            <div>
+              <label>Rows</label
+              ><input
+                type="text"
+                id="rows-d"
+                value="—"
+                readonly
+                style="opacity: 0.6"
+              />
+            </div>
+            <div>
+              <label>Frames</label
+              ><input
+                type="text"
+                id="frames-d"
+                value="—"
+                readonly
+                style="opacity: 0.6"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-title">Configuration</div>
+          <label>Number of Boards (1-16)</label>
+          <div style="display: flex; gap: 6px; align-items: center">
+            <input
+              type="range"
+              id="config-boards"
+              min="1"
+              max="16"
+              value="10"
+              style="flex: 1"
+              oninput="updateConfig()"
+            />
+            <span
+              style="
+                font-family: var(--mono);
+                font-size: 12px;
+                color: var(--accent);
+                min-width: 30px;
+              "
+              id="config-boards-val"
+              >2</span
+            >
+          </div>
+          <div
+            style="
+              margin-top: 6px;
+              font-size: 10px;
+              color: var(--muted);
+              line-height: 1.4;
+            "
+          >
+            <div>Total Valves: <span id="config-valves-val">16</span></div>
+            <div>Frame Size: <span id="config-frame-val">9</span> bytes</div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-title">Test Mode</div>
+          <label>Test Bits Range</label>
+          <div style="display: flex; gap: 6px; align-items: center">
+            <input
+              type="number"
+              id="test-bits"
+              value="80"
+              min="1"
+              max="80"
+              style="flex: 1"
+            />
+            <button
+              class="btn btn-ghost btn-sm"
+              onclick="buildTestUI()"
+              style="flex: 0"
+            >
+              Build
+            </button>
+          </div>
+          <div id="test-bits-container" style="margin-top: 10px; display: none">
+            <label>Select bits to activate:</label>
+            <div
+              id="test-checkboxes"
+              style="
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 6px;
+                margin-top: 6px;
+              "
+            ></div>
+            <div style="margin-top: 8px; display: flex; gap: 6px">
+              <button
+                class="btn btn-primary btn-sm"
+                onclick="sendTestFrame()"
+                style="flex: 1"
+              >
+                ▶ Send &amp; Hold
+              </button>
+              <button
+                class="btn btn-ghost btn-sm"
+                onclick="clearTestBits()"
+                style="flex: 1"
+              >
+                Clear
+              </button>
+              <button
+                class="btn btn-danger btn-sm"
+                onclick="testAllOff()"
+                style="flex: 1"
+              >
+                Off
+              </button>
+            </div>
+            <div style="margin-top: 8px">
+              <button
+                class="btn btn-ghost btn-sm"
+                onclick="testBoardSequence()"
+                style="width: 100%"
+              >
+                🔍 Test Board Sequence (1→10)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-title">Test Patterns</div>
+          <label>Pattern Type</label>
+          <select
+            id="pattern-type"
+            style="
+              width: 100%;
+              padding: 7px 9px;
+              background: var(--card);
+              border: 1px solid var(--border);
+              color: var(--text);
+              border-radius: 5px;
+              font-size: 11px;
+              margin-bottom: 8px;
+            "
+            onchange="updatePatternPreview()"
+          >
+            <option value="spiral">Spiral (Xoắn ốc)</option>
+            <option value="wave">Wave (Uốn lượn)</option>
+            <option value="striped">Striped (Xen kẻ)</option>
+            <option value="checkerboard">Checkerboard (Bàn cờ)</option>
+            <option value="rain">Rain (Mưa)</option>
+            <option value="diagonal">Diagonal (Chéo)</option>
+            <option value="pulse">Pulse (Nhịp)</option>
+          </select>
+          <label>Pattern Density</label>
+          <input
+            type="range"
+            id="pattern-density"
+            min="0"
+            max="100"
+            value="50"
+            oninput="updatePatternPreview()"
+          />
+          <div class="val-label" id="pattern-density-val">50%</div>
+          <div style="margin-top: 8px; display: flex; gap: 6px">
+            <button
+              class="btn btn-primary btn-sm"
+              onclick="generateAndSendPattern()"
+              style="flex: 1"
+            >
+              ▶ Send Pattern
+            </button>
+            <button
+              class="btn btn-ghost btn-sm"
+              onclick="simulatePatternOnly()"
+              style="flex: 1"
+            >
+              Simulate
+            </button>
+          </div>
+        </div>
+
+        <div class="sec">
+          <button
+            class="btn btn-primary"
+            id="btn-send"
+            onclick="startStream()"
+            disabled
+          >
+            ▶ Send to ESP32
+          </button>
+          <div style="margin-top: 6px"></div>
+          <button
+            class="btn btn-ghost"
+            id="btn-sim"
+            onclick="startSimOnly()"
+            disabled
+          >
+            Simulate only
+          </button>
+          <div style="margin-top: 6px"></div>
+          <button class="btn btn-danger btn-sm" onclick="stopAll()">
+            ■ Stop / All off
+          </button>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress"></div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-title">💾 Data Management</div>
+
+          <!-- Storage Status -->
+          <div
+            style="
+              background: var(--card);
+              border: 1px solid var(--border);
+              border-radius: 5px;
+              padding: 8px;
+              margin-bottom: 10px;
+              font-size: 10px;
+              color: var(--muted);
+            "
+          >
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 4px;
+              "
+            >
+              <span>Storage Used</span>
+              <span id="storage-used" style="color: var(--accent)">—</span>
+            </div>
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 4px;
+              "
+            >
+              <span>Free Space</span>
+              <span id="storage-free" style="color: var(--success)">—</span>
+            </div>
+            <div
+              style="
+                width: 100%;
+                height: 6px;
+                background: var(--border);
+                border-radius: 2px;
+                overflow: hidden;
+                margin-top: 6px;
+              "
+            >
+              <div
+                id="storage-bar"
+                style="height: 100%; background: var(--accent); width: 0%"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Animation Files List -->
+          <label>Stored Animations</label>
+          <div
+            style="
+              background: var(--card);
+              border: 1px solid var(--border);
+              border-radius: 5px;
+              padding: 8px;
+              margin-bottom: 8px;
+              max-height: 120px;
+              overflow-y: auto;
+              font-size: 9px;
+              font-family: var(--mono);
+            "
+          >
+            <div
+              id="file-list"
+              style="color: var(--muted); text-align: center; padding: 10px 0"
+            >
+              — No files loaded —
+            </div>
+          </div>
+
+          <!-- File Management Buttons -->
+          <div style="display: flex; gap: 6px; margin-bottom: 8px">
+            <button
+              class="btn btn-primary btn-sm"
+              onclick="loadStorageInfo()"
+              style="flex: 1"
+            >
+              🔄 Refresh
+            </button>
+            <button
+              class="btn btn-ghost btn-sm"
+              onclick="downloadCurrentAnimation()"
+              style="flex: 1"
+            >
+              ⬇ Export
+            </button>
+          </div>
+
+          <!-- Current Animation Info -->
+          <label>Current Animation</label>
+          <div
+            style="
+              background: var(--card);
+              border: 1px solid var(--border);
+              border-radius: 5px;
+              padding: 8px;
+              font-size: 9px;
+              color: var(--muted);
+              font-family: var(--mono);
+              max-height: 60px;
+              overflow-y: auto;
+            "
+          >
+            <div id="anim-info" style="line-height: 1.5">
+              <div>Frames: —</div>
+              <div>Rows: —</div>
+              <div>Boards: —</div>
+              <div>Total Size: —</div>
+            </div>
+          </div>
+
+          <!-- Backup Options -->
+          <div
+            style="
+              margin-top: 10px;
+              padding-top: 10px;
+              border-top: 1px solid var(--border);
+            "
+          >
+            <label>Backup & Restore</label>
+            <div style="display: flex; gap: 6px; margin-top: 6px">
+              <button
+                class="btn btn-ghost btn-sm"
+                onclick="backupAnimation()"
+                style="flex: 1; font-size: 10px"
+              >
+                💾 Save Local
+              </button>
+              <button
+                class="btn btn-ghost btn-sm"
+                onclick="downloadAllAnimations()"
+                style="flex: 1; font-size: 10px"
+              >
+                📦 Backup All
+              </button>
+            </div>
+          </div>
+
+          <!-- File Operations -->
+          <div
+            style="
+              margin-top: 10px;
+              padding-top: 10px;
+              border-top: 1px solid var(--border);
+            "
+          >
+            <label>Advanced</label>
+            <select
+              id="file-select"
+              style="
+                width: 100%;
+                padding: 5px;
+                background: var(--card);
+                border: 1px solid var(--border);
+                color: var(--text);
+                border-radius: 4px;
+                font-size: 10px;
+                margin-bottom: 6px;
+              "
+            >
+              <option value="">— Select file to delete —</option>
+            </select>
+            <button
+              class="btn btn-danger btn-sm"
+              onclick="deleteSelectedFile()"
+              style="width: 100%"
+            >
+              🗑 Delete File
+            </button>
+          </div>
+        </div>
+
+        <div class="sec" style="flex: 1">
+          <div class="sec-title">Log</div>
+          <div id="log"></div>
+        </div>
+      </div>
+
+      <div class="panel-right">
+        <div class="panel-preview">
+          <div class="preview-hdr">
+            <span class="preview-title"
+              >80-pixel preview (cyan = valve open)</span
+            >
+            <span class="badge" id="dim-badge">—</span>
+          </div>
+          <canvas id="pixel-canvas" height="80"></canvas>
+        </div>
+        <div class="panel-sim">
+          <div class="sim-hdr">
+            <span class="preview-title">Water simulation</span>
+            <div class="stats">
+              <div class="stat">
+                <span class="stat-label">Row</span
+                ><span class="stat-val" id="s-row">—</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Time</span
+                ><span class="stat-val" id="s-time">—</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Active</span
+                ><span class="stat-val" id="s-active">—</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">FPS</span
+                ><span class="stat-val" id="s-fps">—</span>
+              </div>
+            </div>
+          </div>
+          <canvas id="sim-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let numBoards = 10;
+      let VALVES = numBoards * 8;
+      let CHIPS = numBoards;
+      const G = 980;
+
+      let frames = [],
+        pixelRows = [],
+        lastImg = null;
+      let optRmbg = true,
+        optInv = false,
+        optSat = true,
+        optFlipH = false,
+        optFlipV = true;
+      let thrVal = 40,
+        dilVal = 1,
+        playbackSpeed = 1.0;
+      let connected = false,
+        ws = null;
+      let simRunning = false,
+        animId = null;
+      let simCanvas,
+        simCtx,
+        simStartTime = 0;
+      let lastFpsTime = 0,
+        fpsCount = 0,
+        fps = 0;
+
+      function log(msg, cls = "log-info") {
+        const d = document.getElementById("log");
+        const t = new Date().toLocaleTimeString("en", { hour12: false });
+        d.innerHTML += `<div class="${cls}">[${t}] ${msg}</div>`;
+        d.scrollTop = d.scrollHeight;
+      }
+
+      function toggleOpt(k) {
+        if (k === "rmbg") {
+          optRmbg = document.getElementById("cb-rmbg").checked;
+          document.getElementById("tw-rmbg").classList.toggle("on", optRmbg);
+        }
+        if (k === "inv") {
+          optInv = document.getElementById("cb-inv").checked;
+          document.getElementById("tw-inv").classList.toggle("on", optInv);
+        }
+        if (k === "sat") {
+          optSat = document.getElementById("cb-sat").checked;
+          document.getElementById("tw-sat").classList.toggle("on", optSat);
+        }
+        if (k === "fliph") {
+          optFlipH = document.getElementById("cb-fliph").checked;
+          document.getElementById("tw-fliph").classList.toggle("on", optFlipH);
+        }
+        if (k === "flipv") {
+          optFlipV = document.getElementById("cb-flipv").checked;
+          document.getElementById("tw-flipv").classList.toggle("on", optFlipV);
+        }
+        reprocess();
+      }
+      function onThr() {
+        thrVal = parseInt(document.getElementById("thr").value);
+        document.getElementById("thr-lbl").textContent = thrVal;
+        reprocess();
+      }
+      function onDil() {
+        dilVal = parseInt(document.getElementById("dil").value);
+        document.getElementById("dil-lbl").textContent = dilVal;
+        reprocess();
+      }
+
+      // ── Configuration ────────────────────────────────────────────
+      function updateConfig() {
+        numBoards =
+          parseInt(document.getElementById("config-boards").value) || 2;
+        CHIPS = numBoards;
+        VALVES = numBoards * 8;
+
+        // Update display
+        document.getElementById("config-boards-val").textContent = numBoards;
+        document.getElementById("config-valves-val").textContent = VALVES;
+        document.getElementById("config-frame-val").textContent =
+          FRAME_BYTES + " (4+" + numBoards + ")";
+
+        // Reset test bits input
+        document.getElementById("test-bits").max = VALVES;
+        document.getElementById("test-bits").value = Math.min(
+          parseInt(document.getElementById("test-bits").value),
+          VALVES,
+        );
+
+        // Rebuild test UI
+        buildTestUI();
+        log(
+          `Config updated: ${numBoards} boards = ${VALVES} valves`,
+          "log-info",
+        );
+      }
+
+      const FRAME_BYTES = 14; // Fixed frame size
+      function connectESP() {
+        const ip = document.getElementById("ip").value.trim();
+        const port = parseInt(document.getElementById("port").value);
+        const wsUrl = `ws://${ip}:${port}`;
+        log(`Connecting ${wsUrl}...`);
+
+        // Chrome block ws:// từ http:// — cần mở file:// hoặc dùng --allow-insecure
+        if (location.protocol === "https:") {
+          log(
+            "ERROR: Mở file HTML trực tiếp (file://) không qua https://",
+            "log-err",
+          );
+          return;
+        }
+
+        if (ws) {
+          ws.close();
+          ws = null;
+        }
+        try {
+          ws = new WebSocket(wsUrl);
+          ws.binaryType = "arraybuffer";
+          ws.onopen = () => {
+            connected = true;
+            document.getElementById("conn-dot").className = "dot on";
+            document.getElementById("conn-label").textContent =
+              `Connected ${ip}`;
+            document.getElementById("btn-send").disabled = frames.length === 0;
+            document.getElementById("btn-sim").disabled = false;
+            log(`Connected to ESP32 @ ${ip}`, "log-ok");
+          };
+          ws.onclose = (e) => {
+            connected = false;
+            document.getElementById("conn-dot").className = "dot";
+            document.getElementById("conn-label").textContent = "Disconnected";
+            document.getElementById("btn-send").disabled = true;
+            log(`Disconnected (code=${e.code})`, "log-warn");
+          };
+          ws.onerror = (e) => {
+            log("WS error! Kiểm tra:", "log-err");
+            log("1. Firmware WebSocket đã upload chưa?", "log-err");
+            log("2. Mở file:// thay vì http://localhost", "log-err");
+            log(`3. ESP32 IP đúng chưa? (${ip}:${port})`, "log-err");
+          };
+        } catch (e) {
+          log(e.message, "log-err");
+        }
+      }
+      function disconnectESP() {
+        if (ws) {
+          ws.close();
+          ws = null;
+        }
+        connected = false;
+      }
+
+      // Frame: 14 bytes [ts_u32le][bits×10]
+      function mkFrame(ts, bits) {
+        const b = new ArrayBuffer(14);
+        new DataView(b).setUint32(0, ts >>> 0, true);
+        const src = bits instanceof Uint8Array ? bits : new Uint8Array(bits);
+        new Uint8Array(b).set(src.subarray(0, 10), 4);
+        return b;
+      }
+      function sendRaw(buf) {
+        if (connected && ws && ws.readyState === 1) ws.send(buf);
+      }
+      function sendReset() {
+        sendRaw(mkFrame(0xffffffff, new Uint8Array(10)));
+      }
+      function sendStart() {
+        sendRaw(mkFrame(0xfffffffe, new Uint8Array(10)));
+      }
+
+      async function testValves() {
+        if (!connected) {
+          log("Not connected", "log-warn");
+          return;
+        }
+        log("Sending test sequence (80 valves × 120ms)...");
+        sendReset();
+        await delay(50);
+        sendStart();
+        for (let v = 0; v < VALVES; v++) {
+          const b = new Uint8Array(10);
+          b[Math.floor(v / 8)] |= 1 << (v % 8);
+          sendRaw(mkFrame(v * 120, b));
+        }
+        sendRaw(mkFrame(VALVES * 120 + 300, new Uint8Array(10)));
+        log("Test sent", "log-ok");
+      }
+
+      // ── Image processing ──────────────────────────────────────
+      function loadFile(input) {
+        const file = input.files[0];
+        if (!file) return;
+        log(`Loading: ${file.name}`);
+        const url = URL.createObjectURL(file);
+        document.getElementById("thumb-preview").src = url;
+        document.getElementById("thumb-preview").style.display = "block";
+        const img = new Image();
+        img.onload = () => {
+          lastImg = img;
+          log(`Loaded ${img.width}×${img.height}px`, "log-ok");
+          reprocess();
+        };
+        img.src = url;
+      }
+
+      function reprocess() {
+        if (lastImg) {
+          pixelRows = extractRows(lastImg);
+          renderPreview();
+          buildFrameSequence();
+        }
+      }
+
+      function extractRows(img) {
+        const W = VALVES;
+        const H = Math.max(1, Math.round(img.height * (W / img.width)));
+        const c = document.createElement("canvas");
+        c.width = W;
+        c.height = H;
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+        ctx.drawImage(img, 0, 0, W, H);
+        const d = ctx.getImageData(0, 0, W, H).data;
+        const bin = new Uint8Array(W * H);
+        for (let i = 0; i < W * H; i++) {
+          const r = d[i * 4],
+            g = d[i * 4 + 1],
+            b = d[i * 4 + 2];
+          const bright = r * 0.299 + g * 0.587 + b * 0.114;
+          const maxC = Math.max(r, g, b),
+            minC = Math.min(r, g, b);
+          const sat = maxC === 0 ? 0 : (maxC - minC) / maxC;
+          let isFg = false;
+          if (optInv) {
+            isFg = bright < 255 - thrVal;
+          } else if (optRmbg) {
+            isFg = bright - thrVal > 0 || sat * 255 - thrVal * 0.5 > 0;
+          } else {
+            isFg = bright > thrVal;
+          }
+          if (optSat && sat > 0.3 && bright > 30) isFg = true;
+          bin[i] = isFg ? 1 : 0;
+        }
+        let cur = bin;
+        for (let pass = 0; pass < dilVal; pass++) {
+          const nxt = new Uint8Array(W * H);
+          for (let y = 0; y < H; y++)
+            for (let x = 0; x < W; x++) {
+              if (cur[y * W + x]) {
+                nxt[y * W + x] = 1;
+                continue;
+              }
+              if (
+                (x > 0 && cur[y * W + x - 1]) ||
+                (x < W - 1 && cur[y * W + x + 1]) ||
+                (y > 0 && cur[(y - 1) * W + x]) ||
+                (y < H - 1 && cur[(y + 1) * W + x])
+              )
+                nxt[y * W + x] = 1;
+            }
+          cur = nxt;
+        }
+        const rows = [];
+        for (let y = 0; y < H; y++) rows.push(cur.slice(y * W, (y + 1) * W));
+        if (optFlipH) for (const row of rows) row.reverse();
+        if (optFlipV) rows.reverse();
+        return rows;
+      }
+
+      function autoThreshold() {
+        if (!lastImg) return;
+        const W = VALVES,
+          H = Math.max(1, Math.round(lastImg.height * (W / lastImg.width)));
+        const c = document.createElement("canvas");
+        c.width = W;
+        c.height = H;
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, W, H);
+        ctx.drawImage(lastImg, 0, 0, W, H);
+        const d = ctx.getImageData(0, 0, W, H).data;
+        const scores = [];
+        for (let i = 0; i < W * H; i++) {
+          const r = d[i * 4],
+            g = d[i * 4 + 1],
+            b = d[i * 4 + 2];
+          const bright = r * 0.299 + g * 0.587 + b * 0.114;
+          const mx = Math.max(r, g, b),
+            mn = Math.min(r, g, b);
+          const sat = mx === 0 ? 0 : (mx - mn) / mx;
+          let s = Math.max(0, bright - 15);
+          if (sat > 0.18) s = Math.max(s, sat * 300);
+          scores.push(s);
+        }
+        scores.sort((a, b) => a - b);
+        const auto = Math.round(scores[Math.floor(scores.length * 0.7)]);
+        document.getElementById("thr").value = auto;
+        thrVal = auto;
+        document.getElementById("thr-lbl").textContent = auto;
+        log(`Auto threshold: ${auto}`, "log-ok");
+        reprocess();
+      }
+
+      function renderPreview() {
+        const canvas = document.getElementById("pixel-canvas");
+        const nR = pixelRows.length;
+        if (!nR) return;
+        const pH = Math.max(2, Math.min(8, Math.floor(280 / nR)));
+        canvas.width = VALVES * 8;
+        canvas.height = nR * pH;
+        const ctx = canvas.getContext("2d");
+        let open = 0;
+        for (let y = 0; y < nR; y++)
+          for (let x = 0; x < VALVES; x++) {
+            if (pixelRows[y][x]) {
+              ctx.fillStyle = "#00d4ff";
+              open++;
+            } else ctx.fillStyle = "#050f1a";
+            ctx.fillRect(x * 8, y * pH, 8, pH);
+          }
+        const pct = ((open / (nR * VALVES)) * 100).toFixed(1);
+        document.getElementById("dim-badge").textContent =
+          `${VALVES}×${nR} px | ${pct}% open`;
+        log(`Preview: ${pct}% valves open`, "log-ok");
+      }
+
+      // ── Frame sequence ────────────────────────────────────────
+      function getAdv() {
+        return parseInt(document.getElementById("adv").value) || 80;
+      }
+      function getH() {
+        return parseFloat(document.getElementById("height").value) || 150;
+      }
+
+      function recalc() {
+        const tf = Math.round(Math.sqrt((2 * getH()) / G) * 1000);
+        document.getElementById("adv-lbl").textContent =
+          `${getAdv()} ms  (t_fall=${tf}ms)`;
+        if (pixelRows.length) buildFrameSequence();
+      }
+      function updateSpeed() {
+        playbackSpeed = parseFloat(document.getElementById("speed").value);
+        document.getElementById("speed-lbl").textContent =
+          playbackSpeed.toFixed(1) + "×";
+      }
+
+      function buildFrameSequence() {
+        if (!pixelRows.length) return;
+        const adv = getAdv(),
+          h = getH();
+        const tfall = Math.round(Math.sqrt((2 * h) / G) * 1000);
+
+        frames = [];
+        for (let row = 0; row < pixelRows.length; row++) {
+          // ts = khi nào ESP mở van, để nước đến đáy đúng lúc row*adv
+          // ts = row*adv - tfall, nhưng không âm (row đầu mở ngay lúc 0)
+          const ts = Math.max(0, row * adv - tfall);
+          const bits = new Uint8Array(CHIPS);
+          for (let v = 0; v < VALVES; v++)
+            if (pixelRows[row][v]) {
+              const byteIdx = Math.floor(v / 8);
+              const reversedByteIdx = CHIPS - 1 - byteIdx; // Reverse byte order for daisy-chain
+              bits[reversedByteIdx] |= 1 << (v % 8);
+            }
+          frames.push({ ts_ms: ts, bits });
+        }
+        // All-off frame ở cuối
+        frames.push({
+          ts_ms: frames[frames.length - 1].ts_ms + adv * 2,
+          bits: new Uint8Array(CHIPS),
+        });
+
+        document.getElementById("rows-d").value = pixelRows.length;
+        document.getElementById("frames-d").value = frames.length;
+        document.getElementById("dim-badge").textContent =
+          `${VALVES}×${pixelRows.length}px | t_fall=${tfall}ms`;
+        document.getElementById("btn-sim").disabled = false;
+        document.getElementById("btn-send").disabled = !connected;
+        log(
+          `Built ${frames.length} frames, t_fall=${tfall}ms, adv=${adv}ms`,
+          "log-ok",
+        );
+        updateAnimationInfo();
+      }
+
+      // ── Test mode ────────────────────────────────────────────
+      function updateTestPreview() {
+        const canvas = document.getElementById("pixel-canvas");
+        const bits = getTestBits();
+
+        // Draw test preview (1 row, VALVES columns)
+        canvas.width = VALVES * 4;
+        canvas.height = 40;
+        const ctx = canvas.getContext("2d");
+
+        for (let x = 0; x < VALVES; x++) {
+          const byteIdx = Math.floor(x / 8);
+          const bitIdx = x % 8;
+          const reversedByteIdx = CHIPS - 1 - byteIdx; // Account for daisy-chain byte reversal
+          const isActive = (bits[reversedByteIdx] >> bitIdx) & 1;
+          ctx.fillStyle = isActive ? "#00d4ff" : "#050f1a";
+          ctx.fillRect(x * 4, 0, 4, 40);
+        }
+      }
+
+      function buildTestUI() {
+        const numBits = Math.min(
+          parseInt(document.getElementById("test-bits").value) || VALVES,
+          VALVES,
+        );
+        const container = document.getElementById("test-checkboxes");
+        container.innerHTML = "";
+        for (let i = 0; i < numBits; i++) {
+          const label = document.createElement("label");
+          label.style.display = "flex";
+          label.style.alignItems = "center";
+          label.style.gap = "4px";
+          label.style.fontSize = "11px";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.id = `test-bit-${i}`;
+          cb.value = i;
+          cb.onchange = updateTestPreview;
+          label.appendChild(cb);
+
+          // Display board and bit index
+          const boardIdx = Math.floor(i / 8);
+          const bitIdx = i % 8;
+          const bitLabel =
+            CHIPS > 1 ? `B${boardIdx + 1}:${bitIdx}` : `Bit ${i}`;
+          label.appendChild(document.createTextNode(bitLabel));
+          container.appendChild(label);
+        }
+        document.getElementById("test-bits-container").style.display = "block";
+        log(`Built UI for ${numBits} bits`, "log-ok");
+        updateTestPreview();
+      }
+
+      function getTestBits() {
+        const numBits =
+          parseInt(document.getElementById("test-bits").value) || 8;
+        const bits = new Uint8Array(CHIPS);
+        for (let i = 0; i < numBits; i++) {
+          const cb = document.getElementById(`test-bit-${i}`);
+          if (cb && cb.checked) {
+            const boardIdx = Math.floor(i / 8);
+            const bitIdx = i % 8;
+            const reversedBoardIdx = CHIPS - 1 - boardIdx; // Reverse byte order for daisy-chain
+            bits[reversedBoardIdx] |= 1 << bitIdx;
+          }
+        }
+        return bits;
+      }
+
+      function sendTestFrame() {
+        if (!connected) {
+          log("Not connected", "log-warn");
+          return;
+        }
+        const bits = getTestBits();
+        if (!bits.some((b) => b !== 0)) {
+          log("No bits selected - select at least one bit", "log-warn");
+          return;
+        }
+
+        const bitStr = Array.from(bits)
+          .map((b) => "0x" + b.toString(16).padStart(2, "0"))
+          .join(" ");
+        log(`Sending test frame: [${bitStr}]`, "log-ok");
+
+        // Send: RESET → START → Frame with proper timing
+        sendReset();
+        setTimeout(() => {
+          sendStart();
+          setTimeout(() => {
+            sendRaw(mkFrame(0, bits)); // ts=0 for immediate execution
+            log("Test frame sent and held", "log-ok");
+          }, 100);
+        }, 100);
+      }
+
+      function testAllOff() {
+        if (!connected) {
+          log("Not connected", "log-warn");
+          return;
+        }
+        log("Sending all off...", "log-info");
+        sendRaw(mkFrame(0, new Uint8Array(CHIPS)));
+        log("All off sent", "log-ok");
+      }
+
+      function clearTestBits() {
+        const numBits =
+          parseInt(document.getElementById("test-bits").value) || 8;
+        for (let i = 0; i < numBits; i++) {
+          const cb = document.getElementById(`test-bit-${i}`);
+          if (cb) cb.checked = false;
+        }
+        updateTestPreview();
+        log("Test bits cleared", "log-info");
+      }
+
+      async function testBoardSequence() {
+        if (!connected) {
+          log("Not connected", "log-warn");
+          return;
+        }
+
+        log("Starting board test sequence... (each board 1sec)", "log-info");
+        sendReset();
+        await delay(100);
+        sendStart();
+        await delay(100);
+
+        // Test each board individually with 0xFF (all bits ON)
+        // Daisy-chain reverses byte order: bits[0]->Board10, bits[9]->Board1
+        for (let logicalBoard = 1; logicalBoard <= 10; logicalBoard++) {
+          const bits = new Uint8Array(10);
+          const byteIdx = 10 - logicalBoard; // Reverse: Board1->bits[9], Board2->bits[8], etc.
+          bits[byteIdx] = 0xff; // All 8 bits for this board ON
+          sendRaw(mkFrame((logicalBoard - 1) * 1000, bits));
+          log(
+            `Frame: Board ${logicalBoard} = 0xFF (byte ${byteIdx})`,
+            "log-info",
+          );
+          await delay(1000);
+        }
+
+        // Turn all off
+        sendRaw(mkFrame(10000, new Uint8Array(10)));
+        log("Board sequence complete", "log-ok");
+      }
+
+      // ── Test Patterns ────────────────────────────────────────────
+      function reverseByteOrder(row) {
+        const reversed = new Uint8Array(row.length);
+        for (let i = 0; i < row.length; i++) {
+          reversed[row.length - 1 - i] = row[i];
+        }
+        return reversed;
+      }
+
+      function generatePattern(type, rows, cols, density = 0.5) {
+        const pattern = [];
+        const center = { x: cols / 2, y: rows / 2 };
+        const maxDist = Math.hypot(cols / 2, rows / 2);
+
+        for (let y = 0; y < rows; y++) {
+          const row = new Uint8Array(Math.ceil(cols / 8));
+          for (let x = 0; x < cols; x++) {
+            let active = false;
+
+            switch (type) {
+              case "spiral": {
+                const dx = x - center.x;
+                const dy = y - center.y;
+                const angle = Math.atan2(dy, dx);
+                const dist = Math.hypot(dx, dy);
+                const spiral = (angle + dist * (Math.PI / 30)) % (Math.PI * 2);
+                active = spiral < Math.PI * density;
+                break;
+              }
+              case "wave": {
+                const waveY =
+                  Math.sin(x * (Math.PI / (cols / 4))) * (rows * 0.3);
+                active = Math.abs(y - center.y - waveY) < rows * density * 0.2;
+                break;
+              }
+              case "striped": {
+                const stripeWidth = Math.max(
+                  1,
+                  Math.floor(cols * (1 - density)),
+                );
+                active = Math.floor(x / 2) % (stripeWidth + 1) < 2;
+                break;
+              }
+              case "checkerboard": {
+                const boxSize = Math.max(
+                  1,
+                  Math.floor((cols * (1 - density)) / 2),
+                );
+                active =
+                  (Math.floor(x / boxSize) + Math.floor(y / boxSize)) % 2 === 0;
+                break;
+              }
+              case "rain": {
+                const isWet = Math.random() < density;
+                active = isWet;
+                break;
+              }
+              case "diagonal": {
+                const diag = (x + y) % (Math.floor(cols * (1 - density)) + 1);
+                active = diag < 2;
+                break;
+              }
+              case "pulse": {
+                const distFromCenter = Math.hypot(x - center.x, y - center.y);
+                active = distFromCenter < maxDist * density;
+                break;
+              }
+            }
+
+            if (active) {
+              row[Math.floor(x / 8)] |= 1 << (x % 8);
+            }
+          }
+          pattern.push(reverseByteOrder(row)); // Reverse byte order for daisy-chain
+        }
+        return pattern;
+      }
+
+      function updatePatternPreview() {
+        const type = document.getElementById("pattern-type").value;
+        const density =
+          parseInt(document.getElementById("pattern-density").value) / 100;
+        document.getElementById("pattern-density-val").textContent =
+          (density * 100).toFixed(0) + "%";
+
+        // Generate small preview pattern  (8x16 for display)
+        const previewPattern = generatePattern(type, 32, VALVES, density);
+
+        // Show on preview canvas (reuse pixel-canvas)
+        const canvas = document.getElementById("pixel-canvas");
+        const pH = Math.max(2, Math.floor(280 / previewPattern.length));
+        canvas.width = VALVES * 4;
+        canvas.height = previewPattern.length * pH;
+        const ctx = canvas.getContext("2d");
+
+        for (let y = 0; y < previewPattern.length; y++) {
+          for (let x = 0; x < VALVES; x++) {
+            const byteIdx = Math.floor(x / 8);
+            const bitIdx = x % 8;
+            const reversedByteIdx = CHIPS - 1 - byteIdx; // Account for daisy-chain byte reversal
+            const isActive = (previewPattern[y][reversedByteIdx] >> bitIdx) & 1;
+
+            ctx.fillStyle = isActive ? "#00d4ff" : "#050f1a";
+            ctx.fillRect(x * 4, y * pH, 4, pH);
+          }
+        }
+        log(
+          `Preview: ${type} pattern (density: ${(density * 100).toFixed(0)}%)`,
+          "log-info",
+        );
+      }
+
+      function generateAndSendPattern() {
+        if (!connected) {
+          log("Not connected", "log-warn");
+          return;
+        }
+
+        const type = document.getElementById("pattern-type").value;
+        const density =
+          parseInt(document.getElementById("pattern-density").value) / 100;
+
+        // Generate full pattern (16 rows for test)
+        const patternRows = generatePattern(type, 16, VALVES, density);
+
+        frames = [];
+        const adv = 80; // Default interval
+        patternRows.forEach((patternRow, rowIdx) => {
+          const ts = rowIdx * adv;
+          frames.push({ ts_ms: ts, bits: patternRow });
+        });
+        frames.push({
+          ts_ms: frames.length * adv,
+          bits: new Uint8Array(CHIPS),
+        });
+
+        log(`Generated ${type} pattern: ${frames.length} frames`, "log-ok");
+        updateAnimationInfo();
+
+        // Send pattern
+        stopAll();
+        sendReset();
+        setTimeout(() => {
+          sendStart();
+          frames.forEach((f) => sendRaw(mkFrame(f.ts_ms, f.bits)));
+          log(`Sent ${frames.length} frames`, "log-ok");
+          startSimulation();
+        }, 80);
+      }
+
+      function simulatePatternOnly() {
+        const type = document.getElementById("pattern-type").value;
+        const density =
+          parseInt(document.getElementById("pattern-density").value) / 100;
+
+        const patternRows = generatePattern(type, 16, VALVES, density);
+
+        frames = [];
+        const adv = 80;
+        patternRows.forEach((patternRow, rowIdx) => {
+          const ts = rowIdx * adv;
+          frames.push({ ts_ms: ts, bits: patternRow });
+        });
+        frames.push({
+          ts_ms: frames.length * adv,
+          bits: new Uint8Array(CHIPS),
+        });
+
+        stopAll();
+        log(`Simulating ${type} pattern`, "log-ok");
+        updateAnimationInfo();
+        startSimulation();
+      }
+
+      // ── Streaming ────────────────────────────────────────────
+      function startStream() {
+        if (!frames.length) {
+          log("No frames", "log-warn");
+          return;
+        }
+        stopAll();
+        log("Sending to ESP32...");
+        sendReset();
+        setTimeout(() => {
+          sendStart();
+          frames.forEach((f) => sendRaw(mkFrame(f.ts_ms, f.bits)));
+          log(`Sent ${frames.length} frames`, "log-ok");
+          startSimulation();
+        }, 80);
+      }
+      function startSimOnly() {
+        stopAll();
+        log("Simulation only");
+        startSimulation();
+      }
+      function stopAll() {
+        if (animId) {
+          cancelAnimationFrame(animId);
+          animId = null;
+        }
+        simRunning = false;
+        sendReset();
+        if (simCtx) simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
+        document.getElementById("progress").style.width = "0%";
+        ["s-row", "s-time", "s-active", "s-fps"].forEach(
+          (id) => (document.getElementById(id).textContent = "—"),
+        );
+        log("Stopped", "log-warn");
+      }
+
+      // ── Simulation ──────────────────────────────────────────
+      function initSim() {
+        simCanvas = document.getElementById("sim-canvas");
+        simCtx = simCanvas.getContext("2d");
+        function resize() {
+          simCanvas.width = simCanvas.offsetWidth || 800;
+          simCanvas.height = simCanvas.offsetHeight || 500;
+        }
+        requestAnimationFrame(resize);
+        window.addEventListener("resize", resize);
+      }
+
+      function startSimulation() {
+        if (!simCanvas) initSim();
+        if (!pixelRows.length) {
+          log("No image loaded", "log-warn");
+          return;
+        }
+        simRunning = true;
+        simStartTime = performance.now();
+        lastFpsTime = simStartTime;
+        fpsCount = 0;
+
+        const adv = getAdv(),
+          h_cm = getH(),
+          nRows = pixelRows.length;
+        const tfall = Math.sqrt((2 * h_cm) / G) * 1000;
+        const totalDur = nRows * adv + tfall * 2 + 2000;
+
+        // Build colIv: per-column valve open intervals
+        const colIv = Array.from({ length: VALVES }, () => []);
+        for (let row = 0; row < nRows; row++) {
+          const vOpen = row * adv,
+            vClose = (row + 1) * adv;
+          for (let col = 0; col < VALVES; col++) {
+            if (!pixelRows[row][col]) continue;
+            const iv = colIv[col];
+            if (iv.length && vOpen <= iv[iv.length - 1].vClose) {
+              iv[iv.length - 1].vClose = vClose;
+            } else iv.push({ vOpen, vClose });
+          }
+        }
+
+        log(
+          `tfall=${tfall.toFixed(0)}ms adv=${adv}ms dur=${(totalDur / 1000).toFixed(1)}s`,
+          "log-info",
+        );
+
+        let W = simCanvas.width,
+          H = simCanvas.height,
+          colW = W / VALVES;
+
+        function yOf(t) {
+          if (t <= 0) return -10;
+          const f = t / tfall;
+          return f * f * H;
+        }
+
+        function tick(now) {
+          if (!simRunning) return;
+          const elapsed = (now - simStartTime) * playbackSpeed;
+          if (simCanvas.width !== W || simCanvas.height !== H) {
+            W = simCanvas.width;
+            H = simCanvas.height;
+            colW = W / VALVES;
+          }
+
+          const ctx = simCtx;
+          ctx.fillStyle = "#020810";
+          ctx.fillRect(0, 0, W, H);
+
+          ctx.strokeStyle = "rgba(0,55,90,0.22)";
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          for (let c = 1; c < VALVES; c++) {
+            ctx.moveTo(c * colW, 8);
+            ctx.lineTo(c * colW, H);
+          }
+          ctx.stroke();
+          ctx.fillStyle = "#010d1a";
+          ctx.fillRect(0, 0, W, 8);
+
+          const hw = Math.max(1.5, colW * 0.32);
+          const dropR = Math.max(2, colW * 0.44);
+          let activeCols = 0;
+
+          for (let col = 0; col < VALVES; col++) {
+            const cx = col * colW + colW * 0.5,
+              x0 = cx - hw,
+              sw = hw * 2;
+            for (const iv of colIv[col]) {
+              const tFront = elapsed - iv.vOpen;
+              const tTail = elapsed - iv.vClose;
+              if (tFront <= 0) continue;
+              if (tTail > tfall * 1.3) continue;
+              const yFront = yOf(tFront);
+              const yTail = tTail <= 0 ? 0 : yOf(tTail);
+              if (yTail >= H + dropR * 3) continue;
+              if (tTail <= 0 && yFront >= 0 && yFront < H) {
+                activeCols++;
+                ctx.fillStyle = "#00ccff";
+                ctx.fillRect(col * colW, 0, colW, 7);
+              }
+              const yTop = Math.max(8, Math.min(yTail, H));
+              const yBot = Math.min(H, yFront - dropR * 0.5);
+              if (yBot > yTop + 0.5) {
+                const sH = yBot - yTop;
+                ctx.fillStyle = "rgba(190,240,255,0.95)";
+                ctx.fillRect(x0, yTop, sw, sH * 0.25);
+                ctx.fillStyle = "rgba(0,175,240,0.90)";
+                ctx.fillRect(x0, yTop + sH * 0.25, sw, sH * 0.75);
+              }
+              if (yFront >= -dropR && yFront < H + dropR * 2) {
+                const dy = Math.min(H + dropR, yFront);
+                ctx.fillStyle = "rgba(0,160,240,0.90)";
+                ctx.beginPath();
+                ctx.arc(cx, dy, dropR, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "rgba(215,250,255,0.95)";
+                ctx.beginPath();
+                ctx.arc(
+                  cx - dropR * 0.25,
+                  dy - dropR * 0.28,
+                  dropR * 0.34,
+                  0,
+                  Math.PI * 2,
+                );
+                ctx.fill();
+              }
+              if (yFront >= H - 6 && yFront < H + 70) {
+                const age = (yFront - H + 6) / 60,
+                  sr = age * colW * 3,
+                  sa = Math.max(0, 0.6 - age);
+                if (sr > 0.5 && sa > 0.01) {
+                  ctx.strokeStyle = `rgba(0,200,255,${sa.toFixed(2)})`;
+                  ctx.lineWidth = 1.2;
+                  ctx.beginPath();
+                  ctx.ellipse(cx, H - 2, sr, sr * 0.18, 0, 0, Math.PI * 2);
+                  ctx.stroke();
+                }
+              }
+            }
+          }
+
+          fpsCount++;
+          if (now - lastFpsTime >= 1000) {
+            fps = fpsCount;
+            fpsCount = 0;
+            lastFpsTime = now;
+          }
+          if (fpsCount % 4 === 0) {
+            const rowNow = Math.floor(elapsed / adv);
+            document.getElementById("s-row").textContent =
+              `${Math.min(Math.max(0, rowNow), nRows)}/${nRows}`;
+            document.getElementById("s-time").textContent =
+              (elapsed / 1000).toFixed(2) + "s";
+            document.getElementById("s-active").textContent = activeCols;
+            document.getElementById("s-fps").textContent = fps;
+            document.getElementById("progress").style.width =
+              Math.min(100, (elapsed / totalDur) * 100) + "%";
+          }
+          if (elapsed > totalDur) {
+            simRunning = false;
+            log("Playback complete ✓", "log-ok");
+            document.getElementById("progress").style.width = "100%";
+            return;
+          }
+          animId = requestAnimationFrame(tick);
+        }
+        animId = requestAnimationFrame(tick);
+      }
+
+      // ── Diagnostic Test: Check WebSocket vs UDP ──────────────
+      async function diagnosticTest() {
+        const testIP = document.getElementById("ip").value || "192.168.1.241";
+
+        log(`🔧 Diagnostic: Testing ${testIP}...`, "log-info");
+
+        // Test 1: WebSocket (port 3333)
+        let wsResult = "❌ WebSocket timeout";
+        try {
+          const result = await new Promise((resolve) => {
+            const ws = new WebSocket(`ws://${testIP}:3333`);
+            let done = false;
+
+            const timer = setTimeout(() => {
+              if (!done) {
+                done = true;
+                ws.close();
+                resolve("❌ WebSocket timeout (>3s)");
+              }
+            }, 3000);
+
+            ws.onopen = () => {
+              if (!done) {
+                done = true;
+                clearTimeout(timer);
+                ws.close();
+                resolve("✅ WebSocket port 3333 OK");
+              }
+            };
+
+            ws.onerror = () => {
+              if (!done) {
+                done = true;
+                clearTimeout(timer);
+                resolve("❌ WebSocket error/refused");
+              }
+            };
+          });
+          wsResult = result;
+        } catch (e) {
+          wsResult = `❌ WebSocket error: ${e.message}`;
+        }
+
+        log(wsResult, wsResult.includes("✅") ? "log-ok" : "log-err");
+
+        // Test 2: UDP config (port 8888) via HTTP fallback
+        let udpResult = "❌ Config server timeout";
+        try {
+          const response = await fetch(`http://${testIP}:8888/api/info`, {
+            timeout: 3000,
+            mode: "no-cors",
+          }).catch(() => ({ ok: false }));
+
+          if (response && response.ok) {
+            udpResult = "✅ UDP Config port 8888 OK";
+          } else {
+            // Try alternative: just test connectivity
+            const result = await new Promise((resolve) => {
+              const xhr = new XMLHttpRequest();
+              xhr.timeout = 2000;
+              xhr.open("GET", `http://${testIP}:8888/test`, true);
+
+              xhr.onload = () => {
+                resolve("✅ UDP Config port 8888 responding");
+              };
+              xhr.onerror = () => {
+                resolve("❌ UDP Config port 8888 timeout/error");
+              };
+              xhr.ontimeout = () => {
+                resolve("❌ UDP Config port 8888 timeout");
+              };
+
+              try {
+                xhr.send();
+              } catch (e) {
+                resolve("❌ Config: " + e.message);
+              }
+            });
+            udpResult = result;
+          }
+        } catch (e) {
+          udpResult = `❌ Config test error: ${e.message}`;
+        }
+
+        log(udpResult, udpResult.includes("✅") ? "log-ok" : "log-warn");
+
+        // Summary
+        log("", "log-info");
+        if (wsResult.includes("✅") && udpResult.includes("✅")) {
+          log("✅ Both ports responding! Everything OK", "log-ok");
+        } else if (wsResult.includes("✅")) {
+          log("⚠️ WebSocket OK but Config might be down", "log-warn");
+        } else if (udpResult.includes("✅")) {
+          log("⚠️ Config OK but WebSocket issue (try Python scan)", "log-info");
+        } else {
+          log("❌ Device not responding on any port", "log-err");
+          log(
+            "💡 Try: Manual IP, check ESP32 power/WiFi, check firewall",
+            "log-warn",
+          );
+        }
+      }
+
+      // ── Data Management ──────────────────────────────────────
+      async function loadStorageInfo() {
+        const ip = document.getElementById("ip").value || "192.168.1.241";
+
+        try {
+          log("Loading storage & file info...", "log-info");
+
+          const response = await fetch(
+            `http://localhost:5000/api/storage/${ip}`,
+          );
+          if (!response.ok) throw new Error("Backend not available");
+
+          const data = await response.json();
+          if (!data.success) {
+            throw new Error(data.error || "Failed to get storage info");
+          }
+
+          const filesize = data.used_mb || 0;
+          const totalspace = data.total_mb || 4096;
+          const freespace = totalspace - filesize;
+          const percent = data.used_pct || 0;
+
+          document.getElementById("storage-used").textContent =
+            filesize.toFixed(2) + " MB";
+          document.getElementById("storage-free").textContent =
+            freespace.toFixed(2) + " MB";
+          document.getElementById("storage-bar").style.width =
+            Math.min(100, percent) + "%";
+
+          log(
+            `Storage: ${filesize.toFixed(2)}MB / ${totalspace.toFixed(1)}MB (${percent.toFixed(1)}%)`,
+            "log-ok",
+          );
+
+          // Load file list from device
+          try {
+            const filesResponse = await fetch(
+              `http://localhost:5000/api/device/${ip}/files`,
+            );
+            if (filesResponse.ok) {
+              const filesData = await filesResponse.json();
+
+              const fileListDiv = document.getElementById("file-list");
+              if (filesData.files && filesData.files.length > 0) {
+                let html = "";
+                filesData.files.forEach((f) => {
+                  const name = f.name || "unknown";
+                  const size = (f.size_kb || 0).toFixed(2);
+                  html += `<div style="padding: 3px 0; border-bottom: 1px solid var(--border)">${name} — ${size} KB</div>`;
+                });
+                fileListDiv.innerHTML = html;
+              } else {
+                fileListDiv.innerHTML = "— No files found —";
+              }
+
+              // Update file select dropdown
+              const fileSelect = document.getElementById("file-select");
+              fileSelect.innerHTML =
+                '<option value="">— Select file to delete —</option>';
+              if (filesData.files) {
+                filesData.files.forEach((f) => {
+                  const opt = document.createElement("option");
+                  opt.value = f.name;
+                  opt.text =
+                    f.name + " (" + (f.size_kb || 0).toFixed(2) + " KB)";
+                  fileSelect.appendChild(opt);
+                });
+              }
+
+              log(
+                `Found ${filesData.count || 0} animation file(s)`,
+                filesData.count > 0 ? "log-ok" : "log-info",
+              );
+            }
+          } catch (e) {
+            log("Files list: " + e.message, "log-warn");
+          }
+        } catch (e) {
+          log("Storage info: " + e.message, "log-warn");
+        }
+      }
+
+      async function downloadCurrentAnimation() {
+        if (!frames.length) {
+          log("No animation loaded", "log-warn");
+          return;
+        }
+
+        try {
+          const animData = {
+            frames: frames,
+            metadata: {
+              rows: pixelRows.length,
+              cols: VALVES,
+              timestamp: new Date().toISOString(),
+              height_cm: getH(),
+              row_interval_ms: getAdv(),
+            },
+          };
+
+          const json = JSON.stringify(animData, null, 2);
+          const blob = new Blob([json], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `animation_${Date.now()}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+
+          log("Animation downloaded", "log-ok");
+        } catch (e) {
+          log("Download failed: " + e.message, "log-err");
+        }
+      }
+
+      function backupAnimation() {
+        if (!frames.length) {
+          log("No animation to backup", "log-warn");
+          return;
+        }
+
+        const backup = {
+          frames: frames,
+          pixelRows: pixelRows,
+          config: {
+            numBoards: numBoards,
+            height: getH(),
+            rowInterval: getAdv(),
+            playbackSpeed: playbackSpeed,
+          },
+          timestamp: new Date().toLocaleString(),
+        };
+
+        localStorage.setItem("animationBackup", JSON.stringify(backup));
+        log("Animation backed up to local storage", "log-ok");
+      }
+
+      async function downloadAllAnimations() {
+        try {
+          log("Preparing backup...", "log-info");
+
+          const animData = {
+            version: "1.0",
+            created: new Date().toISOString(),
+            animation: {
+              frames: frames,
+              rows: pixelRows.length,
+              cols: VALVES,
+            },
+            config: {
+              boards: numBoards,
+              height_cm: getH(),
+              row_interval_ms: getAdv(),
+              playbackSpeed: playbackSpeed,
+            },
+          };
+
+          const json = JSON.stringify(animData, null, 2);
+          const blob = new Blob([json], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `backup_all_${Date.now()}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+
+          log("Full backup downloaded", "log-ok");
+        } catch (e) {
+          log("Backup failed: " + e.message, "log-err");
+        }
+      }
+
+      async function deleteSelectedFile() {
+        const select = document.getElementById("file-select");
+        const file = select.value;
+
+        if (!file) {
+          log("No file selected", "log-warn");
+          return;
+        }
+
+        if (!confirm(`Delete ${file}?`)) return;
+
+        try {
+          const ip =
+            document.getElementById("config-device-ip").value ||
+            document.getElementById("ip").value;
+          log(`Deleting ${file}...`, "log-info");
+
+          // This would require a DELETE endpoint on backend
+          // For now, just log the action
+          log(`File delete feature coming soon`, "log-info");
+        } catch (e) {
+          log("Delete failed: " + e.message, "log-err");
+        }
+      }
+
+      // Update animation info display
+      function updateAnimationInfo() {
+        const frameCount = frames.length;
+        const rowCount = pixelRows.length;
+        const animSize = (frameCount * VALVES).toLocaleString();
+
+        document.getElementById("anim-info").innerHTML = `
+          <div>Frames: ${frameCount}</div>
+          <div>Rows: ${rowCount}</div>
+          <div>Boards: ${numBoards}</div>
+          <div>Size: ${animSize} bytes</div>
+        `;
+      }
+
+      // Initialize data management on page load
+      function initDataManagement() {
+        loadStorageInfo();
+        updateAnimationInfo();
+      }
+
+      // ── Scan ESP Network ─────────────────────────────────────
+      let scannedDevices = [];
+
+      async function scanESPNetwork() {
+        const results = document.getElementById("scan-results");
+        const select = document.getElementById("scan-devices");
+
+        results.style.display = "block";
+        results.innerHTML = "Scanning...";
+        scannedDevices = [];
+        select.innerHTML = '<option value="">— Scanning... —</option>';
+
+        // TRY BACKEND API FIRST (FAST) ✅
+        log("🔍 Trying backend API first (fast method)...", "log-info");
+        try {
+          const response = await fetch("/api/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prefix: "192.168.1",
+              workers: 50,
+            }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.devices.length > 0) {
+              scannedDevices = data.devices.map((d) => ({
+                ip: d.ip,
+                port: d.port,
+                status: "online",
+                info: d.info,
+              }));
+
+              log(
+                `✅ Backend scan: Found ${data.devices.length} device(s) in ${data.elapsed_ms}ms`,
+                "log-ok",
+              );
+              results.innerHTML = `<div style="color: var(--success)">✅ Found ${data.devices.length} device(s) (${data.elapsed_ms}ms)</div>`;
+
+              select.innerHTML = '<option value="">— Select device —</option>';
+              scannedDevices.forEach((d, idx) => {
+                const opt = document.createElement("option");
+                opt.value = idx;
+                opt.textContent = `${d.ip}:${d.port}`;
+                select.appendChild(opt);
+              });
+              document.getElementById("btn-scan-sd").disabled = false;
+              return;
+            }
+          }
+        } catch (e) {
+          log(
+            `⚠️ Backend not available (${e.message}). Falling back to WebSocket scan (slow)...`,
+            "log-warn",
+          );
+        }
+
+        // FALLBACK: WebSocket scanning (SLOW - only if backend not running)
+        log(
+          "⏳ Using slow WebSocket scan (backend not running). Start backend for fast scan!",
+          "log-warn",
+        );
+
+        let from = parseInt(
+          document.getElementById("scan-ip-from").value || 240,
+        );
+        let to = parseInt(document.getElementById("scan-ip-to").value || 254);
+
+        // Limit range to avoid overwhelming browser
+        // If full 1-254 requested, default to last 50 IPs
+        if (to - from > 50) {
+          from = Math.max(1, to - 50);
+          log("ℹ️ Limiting scan to last 50 IPs (238-254)", "log-warn");
+        }
+
+        log(`Scanning 192.168.1.${from}-${to}...`, "log-info");
+
+        // Sequential scanning with limited concurrency to avoid overwhelming ESP32
+        const baseIP = "192.168.1";
+        const maxConcurrent = 3; // Limit concurrent connections
+        const timeout = 5000; // Increased timeout (was 3000) for more reliable WebSocket handshake
+        let found = 0;
+        let failed = 0;
+
+        // Build IP list
+        const ips = [];
+        for (let i = from; i <= to; i++) {
+          ips.push(`${baseIP}.${i}`);
+        }
+
+        log(
+          `Attempting to scan ${ips.length} IPs with max ${maxConcurrent} concurrent (${timeout}ms timeout)...`,
+          "log-info",
+        );
+
+        // Process with limited concurrency (queue-based)
+        const queue = [...ips];
+        const active = [];
+
+        const testIP = (ip, retryCount = 0) => {
+          return new Promise((resolve) => {
+            const port = 3333;
+            const wsUrl = `ws://${ip}:${port}`;
+
+            try {
+              const testWs = new WebSocket(wsUrl);
+              testWs.binaryType = "arraybuffer";
+              let resolved = false;
+              let timer = null;
+              let startTime = Date.now();
+
+              const cleanup = () => {
+                if (timer) clearTimeout(timer);
+                try {
+                  testWs.close();
+                } catch (e) {}
+              };
+
+              // Timeout handler with retry on first attempt
+              timer = setTimeout(() => {
+                if (!resolved) {
+                  resolved = true;
+                  const elapsed = Date.now() - startTime;
+                  cleanup();
+
+                  // Retry once on timeout
+                  if (retryCount === 0 && elapsed >= timeout - 100) {
+                    log(
+                      `⟳ Retrying ${ip}... (first attempt took ${elapsed}ms)`,
+                      "log-warn",
+                    );
+                    testIP(ip, 1).then(resolve);
+                  } else {
+                    failed++;
+                    resolve();
+                  }
+                }
+              }, timeout);
+
+              testWs.onopen = () => {
+                if (!resolved) {
+                  resolved = true;
+                  clearTimeout(timer);
+                  const elapsed = Date.now() - startTime;
+                  scannedDevices.push({ ip, port, status: "online" });
+                  found++;
+                  results.innerHTML = `<div style="color: var(--warn)">Scanning... found ${found} (${elapsed}ms)</div>`;
+                  log(`✓ Found: ${ip}:${port} in ${elapsed}ms`, "log-ok");
+                  cleanup();
+                  resolve();
+                }
+              };
+
+              testWs.onerror = (evt) => {
+                if (!resolved) {
+                  resolved = true;
+                  clearTimeout(timer);
+
+                  // Retry once on error
+                  if (retryCount === 0) {
+                    log(`⟳ Retrying ${ip}... (error)`, "log-warn");
+                    testIP(ip, 1).then(resolve);
+                  } else {
+                    failed++;
+                    cleanup();
+                    resolve();
+                  }
+                }
+              };
+
+              testWs.onclose = () => {
+                if (!resolved) {
+                  resolved = true;
+                  clearTimeout(timer);
+                  failed++;
+                  cleanup();
+                  resolve();
+                }
+              };
+            } catch (e) {
+              const msg = `Scan error at ${ip}: ${e.message}`;
+              if (retryCount === 0) {
+                log(`⟳ Retrying ${ip}... (exception)`, "log-warn");
+                testIP(ip, 1).then(resolve);
+              } else {
+                log(msg, "log-warn");
+                failed++;
+                resolve();
+              }
+            }
+          });
+        };
+
+        // Process queue with concurrency limit
+        while (queue.length > 0 || active.length > 0) {
+          // Fill active slots
+          while (active.length < maxConcurrent && queue.length > 0) {
+            const ip = queue.shift();
+            const promise = testIP(ip).then(() => {
+              active.splice(active.indexOf(promise), 1);
+            });
+            active.push(promise);
+          }
+
+          // Wait for at least one to complete
+          if (active.length > 0) {
+            await Promise.race(active);
+          }
+        }
+
+        // Wait for any final callbacks
+        await delay(300);
+
+        // Update UI with results
+        log(
+          `Scan complete! Found ${scannedDevices.length} ESP32(s) (${failed} timeouts)`,
+          "log-info",
+        );
+
+        if (scannedDevices.length > 0) {
+          results.innerHTML = `<div style="color: var(--success)">✅ Found ${scannedDevices.length} device(s)</div>`;
+          log(`Scan complete: ${scannedDevices.length} ESP32 found`, "log-ok");
+
+          select.innerHTML = '<option value="">— Select device —</option>';
+          scannedDevices.forEach((d, idx) => {
+            const opt = document.createElement("option");
+            opt.value = idx;
+            opt.textContent = `${d.ip}:${d.port}`;
+            select.appendChild(opt);
+          });
+
+          document.getElementById("btn-scan-sd").disabled = false;
+        } else {
+          results.innerHTML = `<div style="color: var(--warn)">✗ No devices found (scanned 192.168.1.${from}-${to})</div>`;
+          log("No ESP32 found in range", "log-warn");
+          log("💡 Tips: Check that:", "log-info");
+          log("   1. ESP32 is powered on and connected to WiFi", "log-info");
+          log("   2. TCP server listening on port 3333", "log-info");
+          log("   3. Network is stable (WiFi interference?)", "log-info");
+          log("   4. Try narrower IP range (e.g., 240-254)", "log-info");
+          document.getElementById("btn-scan-sd").disabled = true;
+
+          // Fallback: try manual IP entry
+          select.innerHTML =
+            '<option value="">— No devices found (try manual IP) —</option>';
+        }
+      }
+
+      function selectScannedESP(idx) {
+        if (!idx || idx === "") return;
+        const device = scannedDevices[parseInt(idx)];
+        if (device) {
+          document.getElementById("ip").value = device.ip;
+          document.getElementById("port").value = device.port;
+
+          // Also populate config device selector
+          document.getElementById("config-device-ip").value = device.ip;
+          document.getElementById("config-device-select").value = "";
+
+          log(`Selected: ${device.ip}:${device.port}`, "log-ok");
+        }
+      }
+
+      function selectConfigDevice(idx) {
+        if (!idx || idx === "") return;
+        const device = scannedDevices[parseInt(idx)];
+        if (device) {
+          document.getElementById("config-device-ip").value = device.ip;
+          log(`Selected for config: ${device.ip}`, "log-ok");
+        }
+      }
+
+      async function sendUDPCommand(ip, cmd) {
+        /**
+         * Send UDP config command via HTTP GET (requires HTTP endpoint on ESP32)
+         * Format: http://<IP>:3333/config?cmd=<CMD>
+         *
+         * Alternative: Use the Python tool for full UDP support
+         */
+        try {
+          const url = `http://${ip}:3333/config?cmd=${encodeURIComponent(cmd)}`;
+          const response = await fetch(url, { timeout: 2000 });
+          if (!response.ok) {
+            return null;
+          }
+          const text = await response.text();
+          return text;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      async function configGetInfo() {
+        const ip = document.getElementById("config-device-ip").value.trim();
+        if (!ip) {
+          log("Please enter device IP", "log-warn");
+          return;
+        }
+
+        log(`Getting info from ${ip}...`, "log-info");
+        const infoDiv = document.getElementById("config-info");
+        infoDiv.style.display = "block";
+        infoDiv.textContent = "Fetching...";
+
+        // Try HTTP endpoint first
+        let result = await sendUDPCommand(ip, "GET_INFO");
+
+        if (result) {
+          infoDiv.textContent = result;
+          log(`Got info: ${result}`, "log-ok");
+        } else {
+          infoDiv.innerHTML = `
+<span style="color: var(--warn)">⚠️ Could not reach ${ip}:3333</span><br/>
+<span style="font-size: 9px; color: var(--muted); margin-top: 4px;">
+Note: Use Python tool for UDP:<br/>
+<code>python set_config.py --esp ${ip} --info</code>
+</span>`;
+          log(`Failed to get info from ${ip}`, "log-warn");
+        }
+      }
+
+      // Removed: configSetIP() and configSetPort() functions
+
+      async function configReset() {
+        const ip = document.getElementById("config-device-ip").value.trim();
+
+        if (!ip) {
+          log("Please enter device IP", "log-warn");
+          return;
+        }
+
+        if (!confirm(`Reset device ${ip}? It will restart.`)) {
+          return;
+        }
+
+        log(`Sending RESET to ${ip}...`, "log-info");
+
+        let result = await sendUDPCommand(ip, "RESET");
+
+        if (result) {
+          log(`✓ Device resetting...`, "log-ok");
+        } else {
+          log(
+            `Reset sent (check device). Use Python tool if needed:`,
+            "log-info",
+          );
+          log(`python set_config.py --esp ${ip} --reset`, "log-info");
+        }
+      }
+
+      async function scanSDCard() {
+        if (!connected) {
+          log("Not connected to ESP32", "log-warn");
+          return;
+        }
+
+        log("Requesting SD card file list...", "log-info");
+
+        // Send scan request
+        const cmd = {
+          type: "sd",
+          action: "list",
+          path: "/",
+        };
+
+        try {
+          ws.send(JSON.stringify(cmd));
+
+          // Wait for response (max 2 seconds)
+          let response = null;
+          const promiseResponse = new Promise((resolve) => {
+            const originalOnMessage = ws.onmessage;
+            const timer = setTimeout(() => {
+              ws.onmessage = originalOnMessage;
+              resolve(null);
+            }, 2000);
+
+            ws.onmessage = (e) => {
+              clearTimeout(timer);
+              ws.onmessage = originalOnMessage;
+
+              try {
+                const data = JSON.parse(e.data);
+                if (data.type === "sd" && data.files) {
+                  resolve(data);
+                }
+              } catch (err) {
+                // Ignore parse errors
+              }
+            };
+          });
+
+          response = await promiseResponse;
+
+          if (response && response.files) {
+            const results = document.getElementById("scan-results");
+            results.style.display = "block";
+            results.innerHTML = `<div style="color: var(--accent); font-weight: 600">📁 SD Card Files:</div>`;
+
+            response.files.forEach((f) => {
+              const sizeStr =
+                f.size > 1024 * 1024
+                  ? (f.size / (1024 * 1024)).toFixed(1) + "MB"
+                  : f.size > 1024
+                    ? (f.size / 1024).toFixed(1) + "KB"
+                    : f.size + "B";
+
+              const icon = f.isDir ? "📂" : "📄";
+              results.innerHTML += `<div style="margin-top: 4px">${icon} ${f.name} <span style="color: var(--muted)">${sizeStr}</span></div>`;
+            });
+
+            log(`SD Card: ${response.files.length} items found`, "log-ok");
+          } else {
+            log("SD Card: No response or feature not implemented", "log-warn");
+          }
+        } catch (e) {
+          log("SD Card scan error: " + e.message, "log-err");
+        }
+      }
+
+      // ── Drag drop ─────────────────────────────────────────────
+      const dz = document.getElementById("dropzone");
+      dz.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dz.classList.add("drag");
+      });
+      dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
+      dz.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dz.classList.remove("drag");
+        const file = e.dataTransfer.files[0];
+        if (file) {
+          const fi = document.getElementById("file-input");
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          fi.files = dt.files;
+          loadFile(fi);
+        }
+      });
+      function delay(ms) {
+        return new Promise((r) => setTimeout(r, ms));
+      }
+
+      window.addEventListener("load", () => {
+        initSim();
+        updateConfig(); // Initialize UI based on board config
+        initDataManagement(); // Initialize data management tab
+        log("=== Water Curtain Controller ===", "log-ok");
+        if (location.protocol === "file:") {
+          log("Mở từ file:// ✓", "log-ok");
+        } else {
+          log(
+            `Đang chạy từ ${location.protocol}//${location.host}`,
+            "log-warn",
+          );
+          log(
+            "⚠ Nên mở file HTML trực tiếp (double-click) thay vì Live Server",
+            "log-warn",
+          );
+        }
+        log("1. Upload firmware WebSocket lên ESP32", "log-info");
+        log("2. Nhập IP ESP32 → Connect", "log-info");
+        log("3. Load ảnh → Send to ESP32", "log-info");
+      });
+    </script>
+  </body>
+</html>
