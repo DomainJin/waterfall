@@ -17,7 +17,7 @@ void MQTTManager::begin(const char* broker,
     _port     = port;
     _user     = user;
     _password = password;
-    _clientId = clientId;
+    _clientId = String(clientId);
 
 #ifndef MQTT_USE_PLAIN_CLIENT
     // Bỏ qua xác thực CA cert (dùng cho development)
@@ -50,8 +50,8 @@ void MQTTManager::tick() {
 void MQTTManager::_reconnect() {
     Serial.printf("[MQTT] Đang kết nối %s:%u...\n", _broker, _port);
 
-    String willPayload = "{\"online\":false,\"name\":\"" + String(_clientId) + "\"}";
-    bool ok = _client.connect(_clientId, _user, _password,
+    String willPayload = "{\"online\":false,\"name\":\"" + _clientId + "\"}";
+    bool ok = _client.connect(_clientId.c_str(), _user, _password,
                                MQTT_TOPIC_STATUS,          // will topic
                                1,                           // will QoS
                                true,                        // will retain
@@ -66,7 +66,7 @@ void MQTTManager::_reconnect() {
 
         // Thông báo online kèm IP
         String ip = WiFi.localIP().toString();
-        String status = "{\"online\":true,\"name\":\"" + String(_clientId) + "\",\"ip\":\"" + ip + "\"}";
+        String status = "{\"online\":true,\"name\":\"" + _clientId + "\",\"ip\":\"" + ip + "\"}";
         publishStatus(status);
     } else {
         Serial.printf("[MQTT] Thất bại, rc=%d. Thử lại sau %lus\n",

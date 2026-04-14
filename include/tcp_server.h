@@ -54,6 +54,36 @@ private:
     // Static instance pointer để dùng trong static callback
     static TcpServer* _instance;
 
+    // Handle JSON text command from WebSocket (LAN path)
+    // {"cmd":"ALL_OFF"} / {"cmd":"ALL_ON"} / {"cmd":"SET","bits":"FF00..."} / {"cmd":"STREAM_STOP"}
+    void _handleTextCmd(const String& json) {
+        if (json.indexOf("ALL_OFF") >= 0) {
+            _v.allOff();
+            Serial.println("[WS] CMD ALL_OFF");
+        } else if (json.indexOf("ALL_ON") >= 0) {
+            _v.allOn();
+            Serial.println("[WS] CMD ALL_ON");
+        } else if (json.indexOf("STREAM_STOP") >= 0) {
+            reset();
+            Serial.println("[WS] CMD STREAM_STOP");
+        } else if (json.indexOf("\"SET\"") >= 0) {
+            // {"cmd":"SET","bits":"AABB..."} — NUM_BOARDS*2 hex chars
+            int idx = json.indexOf("\"bits\":\"");
+            if (idx < 0) return;
+            int start = idx + 8;
+            int end   = json.indexOf('"', start);
+            if (end <= start) return;
+            String hex = json.substring(start, end);
+            if ((int)hex.length() < NUM_BOARDS * 2) return;
+            uint8_t bits[NUM_BOARDS];
+            for (int i = 0; i < NUM_BOARDS; i++) {
+                bits[i] = (uint8_t)strtol(hex.substring(i*2, i*2+2).c_str(), nullptr, 16);
+            }
+            _v.write(bits);
+            Serial.printf("[WS] CMD SET %s\n", hex.c_str());
+        }
+    }
+
     // Static callback — không capture bất kỳ thứ gì
     static void _staticEvent(uint8_t num, WStype_t type,
                               uint8_t* payload, size_t len) {
@@ -74,6 +104,12 @@ private:
                 Serial.printf("[WS] Client #%d disconnected\n", num);
                 reset();
                 break;
+
+            case WStype_TEXT: {
+                String json((char*)payload, len);
+                _handleTextCmd(json);
+                break;
+            }
 
             case WStype_BIN: {
                 // Append vào rx buffer

@@ -38,6 +38,7 @@ public:
     void onCommand(MQTTCommandCallback cb) { _callback = cb; }
 
     bool isConnected() { return _client.connected(); }
+    String getClientId() const { return _clientId; }
 
 private:
 #ifdef MQTT_USE_PLAIN_CLIENT
@@ -52,7 +53,7 @@ private:
     uint16_t    _port     = 8883;
     const char* _user     = nullptr;
     const char* _password = nullptr;
-    const char* _clientId = nullptr;
+    String      _clientId;
 
     uint32_t _lastReconnect = 0;
     static const uint32_t RECONNECT_INTERVAL = 5000;  // ms

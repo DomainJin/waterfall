@@ -106,20 +106,54 @@ void setup() {
     if (WiFi.status() == WL_CONNECTED) {
         Serial.printf("[SETUP] Starting MQTT client...\n");
         Serial.flush();
+        // Tạo client ID duy nhất từ 3 byte cuối MAC address
+        uint8_t mac[6];
+        WiFi.macAddress(mac);
+        char clientId[32];
+        snprintf(clientId, sizeof(clientId), "waterfall-%02x%02x%02x", mac[3], mac[4], mac[5]);
         g_mqtt.begin(MQTT_BROKER_HOST, MQTT_BROKER_PORT,
-                     MQTT_USER, MQTT_PASSWORD);
+                     MQTT_USER, MQTT_PASSWORD, clientId);
         // Xử lý lệnh từ cloud
         g_mqtt.onCommand([](const String& topic, const String& payload) {
             Serial.printf("[MQTT] Cmd topic=%s payload=%s\n", topic.c_str(), payload.c_str());
 
+            // Optional target filtering: {"target":"waterfall-abc123",...}
+            // If target present and doesn't match our clientId → ignore
+            int tgt_idx = payload.indexOf("\"target\":\"");
+            if (tgt_idx >= 0) {
+                int ts = tgt_idx + 10;
+                int te = payload.indexOf('"', ts);
+                if (te > ts) {
+                    String target = payload.substring(ts, te);
+                    if (target != g_mqtt.getClientId()) return;
+                }
+            }
+
             if (topic == MQTT_TOPIC_VALVE) {
-                // {"cmd":"ALL_OFF"} hoặc {"cmd":"ALL_ON"}
+                // {"cmd":"ALL_OFF"} / {"cmd":"ALL_ON"} / {"cmd":"SET","bits":"FF00..."}
                 if (payload.indexOf("ALL_OFF") >= 0) {
                     g_valve.allOff();
                     Serial.println("[MQTT] ALL_OFF executed");
                 } else if (payload.indexOf("ALL_ON") >= 0) {
                     g_valve.allOn();
                     Serial.println("[MQTT] ALL_ON executed");
+                } else if (payload.indexOf("\"SET\"") >= 0) {
+                    int idx = payload.indexOf("\"bits\":\"");
+                    if (idx >= 0) {
+                        int start = idx + 8;
+                        int end   = payload.indexOf('"', start);
+                        if (end > start) {
+                            String hex = payload.substring(start, end);
+                            if ((int)hex.length() >= NUM_BOARDS * 2) {
+                                uint8_t bits[NUM_BOARDS];
+                                for (int i = 0; i < NUM_BOARDS; i++) {
+                                    bits[i] = (uint8_t)strtol(hex.substring(i*2, i*2+2).c_str(), nullptr, 16);
+                                }
+                                g_valve.write(bits);
+                                Serial.println("[MQTT] SET bits executed");
+                            }
+                        }
+                    }
                 }
             } else if (topic == MQTT_TOPIC_STREAM) {
                 // {"frame":"AABBCC..."} — hex encoded frame bytes

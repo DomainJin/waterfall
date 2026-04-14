@@ -928,6 +928,33 @@ def api_devices():
     return jsonify({'devices': devices})
 
 
+@app.route('/api/cmd', methods=['POST'])
+def api_cmd():
+    """Gửi lệnh điều khiển tới ESP32 qua MQTT (cloud path).
+    Body: {"cmd":"ALL_OFF"|"ALL_ON"|"SET", "bits":"FF00...", "target":"waterfall-abc123"}
+    """
+    data   = request.get_json() or {}
+    cmd    = data.get('cmd', '')
+    bits   = data.get('bits', '')    # hex string, only for SET
+    target = data.get('target', '')  # device name, empty = broadcast
+
+    if not cmd:
+        return jsonify({"error": "Thiếu trường 'cmd'"}), 400
+
+    if not mqtt_relay.connected:
+        return jsonify({"error": "MQTT chưa kết nối", "connected": False}), 503
+
+    payload_dict = {"cmd": cmd}
+    if cmd == 'SET' and bits:
+        payload_dict["bits"] = bits
+    if target:
+        payload_dict["target"] = target
+
+    mqtt_relay.publish(TOPIC_VALVE, json.dumps(payload_dict), qos=1)
+    logger.info(f"[CMD] cmd={cmd} target={target or 'broadcast'}")
+    return jsonify({"success": True, "method": "mqtt", "cmd": cmd, "target": target or "broadcast"})
+
+
 @app.route('/api/mqtt/status', methods=['GET'])
 def api_mqtt_status():
     """Trạng thái kết nối MQTT broker"""
