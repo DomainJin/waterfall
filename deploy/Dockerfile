@@ -20,11 +20,6 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy app source (web files + backend)
 COPY ../ .
 
-# Non-root user for security
-RUN useradd -m -u 1000 appuser \
- && chown -R appuser:appuser /app
-USER appuser
-
 EXPOSE 5000
 
 # Gunicorn: 4 workers, timeout 120s (cần cho scan network)
