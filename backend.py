@@ -919,9 +919,6 @@ def api_devices():
     for name, info in mqtt_relay._esp_devices.items():
         online = info.get('online', False)
         last_seen = info.get('last_seen', 0)
-        # Nếu online nhưng không có heartbeat > 60s → mark offline
-        if online and time.time() - last_seen > 60:
-            online = False
         devices.append({
             'name':      name,
             'ip':        info.get('ip', ''),
