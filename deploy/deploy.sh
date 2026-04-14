@@ -64,19 +64,20 @@ setup_mosquitto_passwd() {
 
 # ── Copy cert Mosquitto từ Let's Encrypt ─────────────────────────────────────
 sync_mqtt_certs() {
-    local cert_src="/etc/letsencrypt/live/$DOMAIN"
     local cert_dst="$DEPLOY_DIR/mosquitto/certs"
     mkdir -p "$cert_dst"
 
-    if [ -d "$cert_src" ]; then
-        cp "$cert_src/fullchain.pem" "$cert_dst/"
-        cp "$cert_src/privkey.pem"   "$cert_dst/"
-        cp "$cert_src/chain.pem"     "$cert_dst/"
-        chmod 644 "$cert_dst"/*.pem
-        info "Cert MQTT đã copy"
-    else
-        warn "Chưa có cert Let's Encrypt. Cert sẽ được tạo khi chạy certbot"
-    fi
+    info "Copy cert từ certbot volume sang mosquitto/certs..."
+    # Cert nằm trong Docker volume deploy_certbot_certs, dùng alpine để extract ra
+    docker run --rm \
+        -v deploy_certbot_certs:/etc/letsencrypt:ro \
+        -v "$cert_dst":/output \
+        alpine sh -c "
+            cp /etc/letsencrypt/live/$DOMAIN/fullchain.pem /output/ &&
+            cp /etc/letsencrypt/live/$DOMAIN/privkey.pem   /output/ &&
+            cp /etc/letsencrypt/live/$DOMAIN/chain.pem     /output/ &&
+            chmod 644 /output/*.pem
+        " && info "Cert MQTT đã copy" || warn "Không tìm thấy cert, kiểm tra lại certbot"
 }
 
 # ── Lấy SSL cert lần đầu (HTTP challenge) ───────────────────────────────────
