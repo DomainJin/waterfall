@@ -1756,8 +1756,15 @@
       }
 
       function sendTestFrame() {
-        if (!connected) {
-          log("Not connected", "log-warn");
+        if (!connected) { log("Not connected", "log-warn"); return; }
+        if (connMode === 'mqtt') {
+          // MQTT mode: gửi SET command với bits hiện tại
+          const bits = getTestBits();
+          if (!bits.some(b => b !== 0)) { log("No bits selected", "log-warn"); return; }
+          const hex = Array.from(bits).map(b => b.toString(16).padStart(2,'0')).join('');
+          sendCommand('SET', { bits: hex })
+            .then(() => log(`MQTT SET sent: ${hex}`, "log-ok"))
+            .catch(e => log(e.message, "log-err"));
           return;
         }
         const bits = getTestBits();
@@ -1771,12 +1778,11 @@
           .join(" ");
         log(`Sending test frame: [${bitStr}]`, "log-ok");
 
-        // Send: RESET → START → Frame with proper timing
         sendReset();
         setTimeout(() => {
           sendStart();
           setTimeout(() => {
-            sendRaw(mkFrame(0, bits)); // ts=0 for immediate execution
+            sendRaw(mkFrame(0, bits));
             log("Test frame sent and held", "log-ok");
           }, 100);
         }, 100);
@@ -1804,10 +1810,8 @@
       }
 
       async function testBoardSequence() {
-        if (!connected) {
-          log("Not connected", "log-warn");
-          return;
-        }
+        if (!connected) { log("Not connected", "log-warn"); return; }
+        if (connMode === 'mqtt') { log("Board test cần kết nối LAN trực tiếp", "log-err"); return; }
 
         log("Starting board test sequence... (each board 1sec)", "log-info");
         sendReset();
@@ -1947,10 +1951,8 @@
       }
 
       function generateAndSendPattern() {
-        if (!connected) {
-          log("Not connected", "log-warn");
-          return;
-        }
+        if (!connected) { log("Not connected", "log-warn"); return; }
+        if (connMode === 'mqtt') { log("Pattern streaming cần kết nối LAN trực tiếp", "log-err"); return; }
 
         const type = document.getElementById("pattern-type").value;
         const density =
@@ -2010,6 +2012,11 @@
 
       // ── Streaming ────────────────────────────────────────────
       function startStream() {
+        if (connMode === 'mqtt') {
+          log("Streaming không khả dụng qua MQTT/Internet", "log-err");
+          log("Mở trang từ LAN (file:// hoặc http://) để stream animation", "log-warn");
+          return;
+        }
         if (!frames.length) {
           log("No frames", "log-warn");
           return;
@@ -2035,7 +2042,11 @@
           animId = null;
         }
         simRunning = false;
-        sendReset();
+        if (connMode === 'mqtt') {
+          sendCommand('ALL_OFF').catch(() => {});
+        } else {
+          sendReset();
+        }
         if (simCtx) simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
         document.getElementById("progress").style.width = "0%";
         ["s-row", "s-time", "s-active", "s-fps"].forEach(
