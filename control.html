@@ -3,22 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-    <title>Water Curtain Controller</title>
+    <title>Control - WATERFALL</title>
+    <link rel="stylesheet" href="style.css">
     <style>
-      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@300;400;600&display=swap");
+      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap");
       :root {
-        --bg: #0a0f1a;
-        --surface: #111827;
-        --card: #1a2235;
-        --border: #1e3a5f;
-        --accent: #00d4ff;
-        --danger: #ff4466;
-        --success: #00e5a0;
-        --warn: #ffaa00;
-        --text: #e0eeff;
-        --muted: #6b8caa;
+        --bg: #f0f4f8;
+        --surface: #ffffff;
+        --card: #f8f9fa;
+        --border: #dee2e6;
+        --accent: #0a8bd4;
+        --danger: #e74c3c;
+        --success: #27ae60;
+        --warn: #f39c12;
+        --text: #2c3e50;
+        --muted: #7f8c8d;
         --mono: "JetBrains Mono", monospace;
-        --sans: "Space Grotesk", sans-serif;
+        --sans: "Segoe UI", Arial, sans-serif;
       }
       * {
         box-sizing: border-box;
@@ -29,7 +30,8 @@
         background: var(--bg);
         color: var(--text);
         font-family: var(--sans);
-        min-height: 100vh;
+        height: 100vh;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
       }
@@ -40,6 +42,7 @@
         align-items: center;
         gap: 12px;
         background: var(--surface);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
       }
       header h1 {
         font-size: 14px;
@@ -68,18 +71,51 @@
         }
       }
       .layout {
-        display: grid;
-        grid-template-columns: 310px 1fr;
+        display: flex;
         flex: 1;
         overflow: hidden;
+        min-height: 0;
       }
       .panel-left {
         background: var(--surface);
-        border-right: 1px solid var(--border);
         display: flex;
         flex-direction: column;
         overflow-y: auto;
-        max-height: calc(100vh - 48px);
+        width: 310px;
+        min-width: 180px;
+        max-width: 520px;
+        flex-shrink: 0;
+      }
+      /* ── Resize handles ───────────────────────────────────── */
+      .resize-v {
+        width: 5px;
+        background: var(--border);
+        cursor: col-resize;
+        flex-shrink: 0;
+        transition: background 0.15s;
+        position: relative;
+        z-index: 20;
+      }
+      .resize-v:hover, .resize-v.active { background: var(--accent); }
+      .resize-v::after {
+        content: '';
+        position: absolute;
+        inset: 0 -3px;   /* wider hit area */
+      }
+      .resize-h {
+        height: 5px;
+        background: var(--border);
+        cursor: row-resize;
+        flex-shrink: 0;
+        transition: background 0.15s;
+        position: relative;
+        z-index: 20;
+      }
+      .resize-h:hover, .resize-h.active { background: var(--accent); }
+      .resize-h::after {
+        content: '';
+        position: absolute;
+        inset: -3px 0;   /* wider hit area */
       }
       .sec {
         padding: 14px 16px;
@@ -245,7 +281,7 @@
       }
       .btn-primary {
         background: var(--accent);
-        color: #000;
+        color: #fff;
       }
       .btn-danger {
         background: var(--danger);
@@ -306,12 +342,14 @@
         accent-color: var(--accent);
       }
       .panel-right {
+        flex: 1;
+        min-width: 0;
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        height: calc(100vh - 48px);
       }
       .panel-preview {
+        flex-shrink: 0;
         padding: 14px 18px;
         border-bottom: 1px solid var(--border);
         background: var(--bg);
@@ -348,6 +386,7 @@
       }
       .panel-sim {
         flex: 1;
+        min-height: 0;
         display: flex;
         flex-direction: column;
         padding: 14px 18px 6px;
@@ -394,15 +433,23 @@
     </style>
   </head>
   <body>
-    <header>
-      <div class="dot" id="conn-dot"></div>
-      <h1>Water Curtain Controller</h1>
-      <span
-        id="conn-label"
-        style="font-size: 10px; color: var(--muted); margin-left: auto"
-        >Disconnected</span
-      >
-    </header>
+    <nav class="navbar">
+      <ul>
+        <li><a href="home.html">🏠 Home</a></li>
+        <li><a href="control.html" class="active">🎛️ Control</a></li>
+        <li><a href="monitor.html">📊 Monitor</a></li>
+        <li><a href="config.html">⚙️ Config</a></li>
+      </ul>
+    </nav>
+
+    <!-- Connection Status Bar -->
+    <div style="background: #ffffff; padding: 10px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #dee2e6; box-shadow: 0 1px 3px rgba(0,0,0,0.06); flex-shrink: 0;">
+      <div id="conn-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #e74c3c;"></div>
+      <span style="font-size: 13px; font-weight: 600; color: #0a8bd4; letter-spacing: 0.05em;">WATER CURTAIN</span>
+      <span id="conn-label" style="font-size: 11px; color: #7f8c8d; margin-left: auto;">Disconnected</span>
+    </div>
+
+    <!-- Main Control Layout -->
     <div class="layout">
       <div class="panel-left">
         <div class="sec">
@@ -459,10 +506,10 @@
             </button>
             <button
               class="btn btn-ghost btn-sm"
-              onclick="diagnosticTest()"
+              onclick="scanBLENetwork()"
               style="flex: 1"
             >
-              🔧 Test
+              📡 Scan BLE
             </button>
           </div>
           <div
@@ -1122,6 +1169,8 @@
         </div>
       </div>
 
+      <div class="resize-v" id="v-handle" title="Kéo để thay đổi chiều rộng"></div>
+
       <div class="panel-right">
         <div class="panel-preview">
           <div class="preview-hdr">
@@ -1132,6 +1181,7 @@
           </div>
           <canvas id="pixel-canvas" height="80"></canvas>
         </div>
+        <div class="resize-h" id="h-handle" title="Kéo để thay đổi chiều cao"></div>
         <div class="panel-sim">
           <div class="sim-hdr">
             <span class="preview-title">Water simulation</span>
@@ -1154,7 +1204,7 @@
               </div>
             </div>
           </div>
-          <canvas id="sim-canvas"></canvas>
+<canvas id="sim-canvas"></canvas>
         </div>
       </div>
     </div>
@@ -2650,6 +2700,17 @@
         if (!idx || idx === "") return;
         const device = scannedDevices[parseInt(idx)];
         if (device) {
+          // Handle BLE devices
+          if (device.type === "BLE") {
+            log(`Selected BLE device: ${device.name}`, "log-ok");
+            results.innerHTML = `<div style="color: var(--success)">
+              📱 BLE Device: ${device.name}<br>
+              <small>ID: ${device.id}</small><br>
+              <small>Connect via Web Bluetooth to configure WiFi</small>
+            </div>`;
+            return;
+          }
+          // Handle WiFi devices (TCP/IP)
           document.getElementById("ip").value = device.ip;
           document.getElementById("port").value = device.port;
 
@@ -2658,6 +2719,115 @@
           document.getElementById("config-device-select").value = "";
 
           log(`Selected: ${device.ip}:${device.port}`, "log-ok");
+        }
+      }
+
+      // ── Scan BLE Devices ─────────────────────────────────────
+      let bleDevice = null;
+
+      async function scanBLENetwork() {
+        const results = document.getElementById("scan-results");
+        const select = document.getElementById("scan-devices");
+
+        results.style.display = "block";
+        results.innerHTML = "Scanning BLE devices...";
+        scannedDevices = [];
+        select.innerHTML = '<option value="">— Scanning BLE... —</option>';
+
+        // Use Web Bluetooth API to scan for devices
+        if (!navigator.bluetooth) {
+          results.innerHTML = `<div style="color: var(--danger)">
+            ❌ Web Bluetooth not supported.<br>
+            Please use Chrome/Edge on HTTPS or localhost.
+          </div>`;
+          return;
+        }
+
+        try {
+          log("📡 Scanning for BLE devices...", "log-info");
+          const device = await navigator.bluetooth.requestDevice({
+            filters: [{ services: [0x1812] }], // HIDS service or custom service
+            optionalServices: ["4fafc201-1fb5-459e-8fcc-c5c9c331914b"]
+          });
+
+          if (device) {
+            log(`✅ Found: ${device.name || device.id}`, "log-ok");
+            results.innerHTML = `<div style="color: var(--success)">
+              ✅ Device found: ${device.name || device.id}<br>
+              <small>ID: ${device.id}</small>
+            </div>`;
+
+            // Try to connect
+            const server = await device.connectGATT();
+            log(`✅ Connected to GATT server`, "log-ok");
+
+            // Get the service
+            const service = await server.getPrimaryService("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
+            
+            // Read device info
+            try {
+              const infoChar = await service.getCharacteristic("beb5483e-36e1-4688-b7f5-ea07361b26aa");
+              const infoValue = await infoChar.readValue();
+              const decoder = new TextDecoder("utf-8");
+              const info = decoder.decode(infoValue);
+              results.innerHTML += `<div style="margin-top:8px;color:var(--muted)">${info}</div>`;
+            } catch(e) {
+              console.log("Could not read info characteristic:", e);
+            }
+
+            // Add to scanned devices
+            scannedDevices.push({
+              type: "BLE",
+              name: device.name || "Waterfall_Config",
+              id: device.id,
+              status: "ready"
+            });
+
+            select.innerHTML = '<option value="">— Select device —</option>';
+            scannedDevices.forEach((d, idx) => {
+              const opt = document.createElement("option");
+              opt.value = idx;
+              opt.textContent = `${d.name} (BLE)`;
+              select.appendChild(opt);
+            });
+
+            device.addEventListener("gattserverdisconnected", () => {
+              log("⚠️ BLE device disconnected", "log-warn");
+              bleDevice = null;
+            });
+
+            bleDevice = device;
+          }
+        } catch (err) {
+          log(`❌ BLE Scan error: ${err}`, "log-error");
+          results.innerHTML = `<div style="color: var(--danger)">
+            ❌ ${err}<br>
+            <small>Make sure ESP32 is advertising BLE</small>
+          </div>`;
+        }
+      }
+
+      // Configure WiFi via BLE
+      async function configureWiFiViaBLE(ssid, password) {
+        if (!bleDevice) {
+          log("❌ No BLE device connected", "log-error");
+          return false;
+        }
+
+        try {
+          const server = await bleDevice.connectGATT();
+          const service = await server.getPrimaryService("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
+          
+          // Write WiFi credentials: SSID|PASSWORD
+          const charWiFi = await service.getCharacteristic("beb5483e-36e1-4688-b7f5-ea07361b26a8");
+          const data = `${ssid}|${password}`;
+          await charWiFi.writeValue(new TextEncoder().encode(data));
+          
+          log("✅ WiFi credentials sent to device", "log-ok");
+          return true;
+        } catch (err) {
+          log(`❌ Failed to configure WiFi: ${err}`, "log-error");
+          return false;
         }
       }
 
@@ -2862,6 +3032,91 @@ Note: Use Python tool for UDP:<br/>
         log("2. Nhập IP ESP32 → Connect", "log-info");
         log("3. Load ảnh → Send to ESP32", "log-info");
       });
+
+      // ── Resize panels ────────────────────────────────────────────────────
+      (function () {
+        const STORAGE_KEY_V = 'wc_panel_left_w';
+        const STORAGE_KEY_H = 'wc_panel_preview_h';
+
+        const vHandle   = document.getElementById('v-handle');
+        const hHandle   = document.getElementById('h-handle');
+        const panelLeft    = document.querySelector('.panel-left');
+        const panelPreview = document.querySelector('.panel-preview');
+
+        // Restore saved sizes
+        const savedW = localStorage.getItem(STORAGE_KEY_V);
+        const savedH = localStorage.getItem(STORAGE_KEY_H);
+        if (savedW) panelLeft.style.width = savedW + 'px';
+        if (savedH) { panelPreview.style.height = savedH + 'px'; panelPreview.style.flexShrink = '0'; }
+
+        // ── Vertical handle (left panel width) ──────────────────────────
+        let vActive = false, vX0, vW0;
+
+        vHandle.addEventListener('mousedown', e => {
+          vActive = true;
+          vX0 = e.clientX;
+          vW0 = panelLeft.offsetWidth;
+          vHandle.classList.add('active');
+          document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none';
+          e.preventDefault();
+        });
+
+        // ── Horizontal handle (preview height) ──────────────────────────
+        let hActive = false, hY0, hH0;
+
+        hHandle.addEventListener('mousedown', e => {
+          hActive = true;
+          hY0 = e.clientY;
+          hH0 = panelPreview.offsetHeight;
+          hHandle.classList.add('active');
+          document.body.style.cursor = 'row-resize';
+          document.body.style.userSelect = 'none';
+          e.preventDefault();
+        });
+
+        // ── Global mouse move ────────────────────────────────────────────
+        document.addEventListener('mousemove', e => {
+          if (vActive) {
+            const w = Math.max(180, Math.min(520, vW0 + e.clientX - vX0));
+            panelLeft.style.width = w + 'px';
+          }
+          if (hActive) {
+            const h = Math.max(60, Math.min(500, hH0 + e.clientY - hY0));
+            panelPreview.style.height = h + 'px';
+            panelPreview.style.flexShrink = '0';
+          }
+        });
+
+        // ── Global mouse up ──────────────────────────────────────────────
+        document.addEventListener('mouseup', () => {
+          if (vActive) {
+            vActive = false;
+            vHandle.classList.remove('active');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            localStorage.setItem(STORAGE_KEY_V, panelLeft.offsetWidth);
+          }
+          if (hActive) {
+            hActive = false;
+            hHandle.classList.remove('active');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            localStorage.setItem(STORAGE_KEY_H, panelPreview.offsetHeight);
+          }
+        });
+
+        // ── Double-click to reset ────────────────────────────────────────
+        vHandle.addEventListener('dblclick', () => {
+          panelLeft.style.width = '310px';
+          localStorage.removeItem(STORAGE_KEY_V);
+        });
+        hHandle.addEventListener('dblclick', () => {
+          panelPreview.style.height = '';
+          panelPreview.style.flexShrink = '';
+          localStorage.removeItem(STORAGE_KEY_H);
+        });
+      })();
     </script>
   </body>
 </html>

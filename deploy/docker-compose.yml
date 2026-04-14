@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+
+  # ── Flask Backend ──────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      - FLASK_ENV=${FLASK_ENV:-production}
+      - FLASK_SECRET=${FLASK_SECRET}
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_USER=${MQTT_USER}
+      - MQTT_PASSWORD=${MQTT_PASSWORD}
+    depends_on:
+      - mosquitto
+    networks:
+      - internal
+    volumes:
+      - backend_logs:/app/logs
+
+  # ── MQTT Broker (Mosquitto) ────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+    ports:
+      - "8883:8883"   # MQTT over TLS  ← ESP32 kết nối vào đây
+      - "9001:9001"   # WebSocket MQTT (optional)
+    networks:
+      - internal
+
+  # ── Nginx Reverse Proxy + SSL ──────────────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+  # ── Certbot (Let's Encrypt SSL) ────────────────────────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    # Chạy một lần để lấy cert, sau đó tự renew qua cron
+    entrypoint: >
+      sh -c "certbot certonly --webroot
+             --webroot-path=/var/www/certbot
+             --email ${SSL_EMAIL}
+             --agree-tos --no-eff-email
+             -d ${DOMAIN}
+             && while :; do certbot renew --quiet; sleep 12h; done"
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  backend_logs:
+  mosquitto_data:
+  mosquitto_logs:
+  certbot_www:
+  certbot_certs:

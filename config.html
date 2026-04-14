@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>Config - WATERFALL</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="navbar-container">
+        <nav class="navbar">
+            <ul>
+                <li><a href="home.html">🏠 Home</a></li>
+                <li><a href="control.html">🎛️ Control</a></li>
+                <li><a href="monitor.html">📊 Monitor</a></li>
+                <li><a href="config.html" class="active">⚙️ Config</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <div class="content">
+
+        <!-- Device banner -->
+        <div class="device-info-banner">
+            <p class="device-info-display" id="device-info-display">⚠️ Chưa chọn thiết bị</p>
+        </div>
+
+        <!-- Row 1: Board Config + Timing Config -->
+        <div class="grid-2">
+
+            <div class="card">
+                <div class="card-header" style="background-color: #2c3e50;">
+                    <h3>🎛️ BOARD CONFIG</h3>
+                </div>
+                <div class="card-content">
+                    <label>Number of Boards (1–16):</label>
+                    <input type="range" min="1" max="16" value="10" id="board-count"
+                           oninput="updateBoardCount(this.value)" class="slider">
+                    <p class="status-text" id="board-count-display">10</p>
+                    <p class="info-text">Total Valves: <strong><span id="valve-count">80</span></strong></p>
+                    <button class="btn btn-primary" onclick="sendBoardCount()">📤 Send to ESP32</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header" style="background-color: #44ad63;">
+                    <h3>⏱️ TIMING CONFIG</h3>
+                </div>
+                <div class="card-content">
+                    <label>Row Interval (ms):</label>
+                    <input type="range" min="20" max="400" value="80" id="row-interval"
+                           oninput="updateRowIntervalDisplay(this.value)" class="slider">
+                    <p class="status-text" id="row-interval-display">80 ms</p>
+
+                    <label>Drop Height (cm):</label>
+                    <input type="number" id="drop-height" value="150" min="30" max="600">
+                    <p class="info-text">t_fall: <strong><span id="t-fall-display">175</span> ms</strong></p>
+
+                    <button class="btn btn-primary" onclick="sendTimingConfig()">📤 Send Timing</button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Row 2: Test Mode + Device Info -->
+        <div class="grid-2">
+
+            <div class="card">
+                <div class="card-header" style="background-color: #9b59b6;">
+                    <h3>🔧 TEST MODE</h3>
+                </div>
+                <div class="card-content">
+                    <label>Test Valve Number (1–80):</label>
+                    <input type="number" id="test-valve-num" value="1" min="1" max="80">
+                    <div class="button-group" style="margin-top: 12px;">
+                        <button class="btn btn-warning" onclick="testSingleValve()">🧪 Test Single</button>
+                        <button class="btn btn-purple" onclick="allValvesOff()">⏹️ All OFF</button>
+                    </div>
+                    <button class="btn btn-danger" onclick="testAllValves()">🔄 Test All Valves</button>
+                    <button class="btn btn-secondary" onclick="testBoardSequence()">📺 Test Board Sequence</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header" style="background-color: #ff6b6b;">
+                    <h3>📡 DEVICE INFO</h3>
+                </div>
+                <div class="card-content">
+                    <p id="device-info-text" class="info-text">Chưa có thông tin</p>
+                    <button class="btn btn-primary" onclick="fetchDeviceInfo()">🔄 Refresh Info</button>
+                    <p class="status-text" style="margin-top: 10px;">
+                        Điều khiển đầy đủ tại <a href="control.html">tab Control</a>
+                    </p>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Row 3: Custom Command -->
+        <div class="card">
+            <div class="card-header" style="background-color: #34495e;">
+                <h3>💻 CUSTOM COMMAND</h3>
+            </div>
+            <div class="card-content">
+                <div class="command-input">
+                    <label>Command:</label>
+                    <input type="text" id="custom-command"
+                           placeholder="e.g., TEST:5, RESET, GET_INFO">
+                    <button class="btn btn-danger" onclick="sendCustomCommand()">📤 Send</button>
+                </div>
+                <p class="status-text" id="command-status">Chưa gửi command</p>
+            </div>
+        </div>
+
+        <!-- Row 4: System Status -->
+        <div class="card">
+            <div class="card-header" style="background-color: #27ae60;">
+                <h3>⚡ SYSTEM STATUS</h3>
+            </div>
+            <div class="card-content">
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+                    <div class="status-panel">
+                        <h3>WebSocket</h3>
+                        <p id="ws-status">—</p>
+                    </div>
+                    <div class="status-panel">
+                        <h3>Device IP</h3>
+                        <p id="status-device-ip">—</p>
+                    </div>
+                    <div class="status-panel">
+                        <h3>Connection</h3>
+                        <p id="status-connection">—</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- .content -->
+
+    <script src="control.js"></script>
+    <script>
+        // ── Device info ──────────────────────────────────────────────────────
+        function fetchDeviceInfo() {
+            const deviceIp = localStorage.getItem('selected_esp_ip');
+            if (!deviceIp) {
+                alert('Chưa chọn thiết bị! Vào Home > Access');
+                return;
+            }
+            document.getElementById('device-info-text').textContent = 'Đang lấy thông tin...';
+            fetch('/api/send-command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: deviceIp, port: 8888, command: 'GET_INFO' })
+            })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('device-info-text').textContent =
+                    (data.success && data.response) ? data.response
+                    : 'Lỗi: ' + (data.error || 'Không nhận được phản hồi');
+            })
+            .catch(e => {
+                document.getElementById('device-info-text').textContent = 'Lỗi: ' + e.message;
+            });
+        }
+
+        // ── Board count ──────────────────────────────────────────────────────
+        function updateBoardCount(value) {
+            document.getElementById('board-count-display').textContent = value;
+            document.getElementById('valve-count').textContent = value * 8;
+            localStorage.setItem('numBoards', value);
+        }
+
+        function sendBoardCount() {
+            const count = document.getElementById('board-count').value;
+            setBoardCount(count);
+        }
+
+        // ── Timing ───────────────────────────────────────────────────────────
+        function calcTFall(height) {
+            return Math.round(Math.sqrt((2 * height) / 980) * 1000);
+        }
+
+        function updateRowIntervalDisplay(value) {
+            document.getElementById('row-interval-display').textContent = value + ' ms';
+            const height = parseInt(document.getElementById('drop-height').value) || 150;
+            document.getElementById('t-fall-display').textContent = calcTFall(height);
+        }
+
+        document.getElementById('drop-height').addEventListener('input', function () {
+            document.getElementById('t-fall-display').textContent = calcTFall(parseInt(this.value) || 150);
+        });
+
+        function sendTimingConfig() {
+            const interval = document.getElementById('row-interval').value;
+            const height   = document.getElementById('drop-height').value;
+            setRowInterval(interval).then(ok => { if (ok) setDropHeight(height); });
+        }
+
+        // ── Test mode ────────────────────────────────────────────────────────
+        function testSingleValve() {
+            const num = parseInt(document.getElementById('test-valve-num').value);
+            if (num < 1 || num > 80) { alert('Số van phải từ 1–80!'); return; }
+            testValve(num);
+        }
+
+        function testAllValves() {
+            if (confirm('Gửi test sequence cho tất cả 80 van?')) {
+                fetch('/api/test-all-valves', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+        }
+
+        // ── Init ─────────────────────────────────────────────────────────────
+        window.addEventListener('DOMContentLoaded', function () {
+            const ip   = localStorage.getItem('selected_esp_ip');
+            const port = localStorage.getItem('selected_esp_port');
+            const banner = document.getElementById('device-info-display');
+
+            if (ip && port) {
+                banner.textContent = `🎯 Đang điều khiển: ${ip}:${port}`;
+                banner.style.color = '#27ae60';
+                document.getElementById('status-device-ip').textContent   = ip;
+                document.getElementById('status-connection').textContent  = `Port ${port}`;
+                document.getElementById('ws-status').textContent          = 'Ready';
+            } else {
+                banner.textContent = '⚠️ Chưa chọn thiết bị — Vui lòng vào Home và click Access';
+                banner.style.color = '#e74c3c';
+                document.getElementById('ws-status').textContent         = 'No device';
+                document.getElementById('status-device-ip').textContent  = '—';
+                document.getElementById('status-connection').textContent = '—';
+            }
+
+            // Restore saved board count
+            const saved = localStorage.getItem('numBoards');
+            if (saved) {
+                document.getElementById('board-count').value = saved;
+                updateBoardCount(saved);
+            }
+
+            // Initial t_fall
+            updateRowIntervalDisplay(document.getElementById('row-interval').value);
+        });
+    </script>
+</body>
+</html>

@@ -21,11 +21,30 @@ import flask
 from flask import Flask, jsonify, request, send_file, send_from_directory
 import werkzeug
 
+# MQTT (optional — chỉ chạy khi có paho-mqtt và biến môi trường MQTT_BROKER)
+try:
+    import paho.mqtt.client as mqtt_lib
+    MQTT_AVAILABLE = True
+except ImportError:
+    MQTT_AVAILABLE = False
+
 # ⚙️ Configuration
 PORT_BACKEND = 5000
-UDP_PORT = 8888
-TIMEOUT_UDP = 1.0
+UDP_PORT     = 8888
+TIMEOUT_UDP  = 1.0
 SCAN_WORKERS = 20
+
+# MQTT config (đọc từ environment — set trong docker-compose hoặc .env)
+MQTT_BROKER   = os.environ.get('MQTT_BROKER', '')       # rỗng = tắt MQTT
+MQTT_PORT     = int(os.environ.get('MQTT_PORT', 1883))
+MQTT_USER     = os.environ.get('MQTT_USER', '')
+MQTT_PASSWORD = os.environ.get('MQTT_PASSWORD', '')
+
+# MQTT Topics
+TOPIC_CMD    = 'waterfall/cmd/#'     # subscribe — nhận lệnh từ web client
+TOPIC_STATUS = 'waterfall/status'    # publish   — trạng thái ESP32
+TOPIC_VALVE  = 'waterfall/cmd/valve' # publish   — điều khiển van
+TOPIC_STREAM = 'waterfall/cmd/stream'# publish   — gửi animation frame
 
 # Setup logging - simple approach (Windows-safe)
 # Use basicConfig's default stream (auto-handles encoding)
@@ -51,6 +70,87 @@ app = Flask(__name__, static_folder='./', static_url_path='')
 device_cache = {}
 cache_timeout = 60  # seconds
 cache_last_update = 0
+
+# ============================================================
+# MQTT Relay (Cloud ↔ ESP32)
+# ============================================================
+
+class MQTTRelay:
+    """Kết nối Flask với MQTT broker để relay lệnh đến ESP32."""
+
+    def __init__(self):
+        self.client   = None
+        self.connected = False
+        self._last_status = {}   # cache trạng thái từ ESP32
+
+    def start(self):
+        if not MQTT_AVAILABLE or not MQTT_BROKER:
+            logger.info("[MQTT] Bỏ qua — MQTT_BROKER chưa cấu hình")
+            return
+
+        self.client = mqtt_lib.Client(client_id="waterfall-backend", clean_session=True)
+        self.client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+        self.client.on_connect    = self._on_connect
+        self.client.on_disconnect = self._on_disconnect
+        self.client.on_message    = self._on_message
+
+        try:
+            self.client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+            self.client.loop_start()   # non-blocking background thread
+            logger.info(f"[MQTT] Đang kết nối tới {MQTT_BROKER}:{MQTT_PORT}")
+        except Exception as e:
+            logger.error(f"[MQTT] Không kết nối được: {e}")
+
+    def _on_connect(self, client, _userdata, _flags, rc):
+        if rc == 0:
+            self.connected = True
+            client.subscribe(TOPIC_CMD, qos=1)
+            logger.info(f"[MQTT] Đã kết nối, subscribe: {TOPIC_CMD}")
+        else:
+            logger.error(f"[MQTT] Kết nối thất bại, rc={rc}")
+
+    def _on_disconnect(self, _client, _userdata, rc):
+        self.connected = False
+        logger.warning(f"[MQTT] Mất kết nối (rc={rc}), tự reconnect...")
+
+    def _on_message(self, _client, _userdata, msg):
+        """Nhận lệnh từ web client qua MQTT → relay đến ESP32 qua UDP."""
+        try:
+            payload = msg.payload.decode('utf-8')
+            topic   = msg.topic
+            logger.info(f"[MQTT] Nhận: {topic} → {payload[:80]}")
+
+            data = json.loads(payload)
+            esp_ip = data.get('ip') or self._get_default_esp_ip()
+            if not esp_ip:
+                return
+
+            cmd = data.get('cmd', '')
+            if cmd:
+                result = send_udp_cmd(esp_ip, cmd, suppress_errors=False)
+                # Gửi kết quả về MQTT status topic
+                self.publish(TOPIC_STATUS, json.dumps({
+                    'ip': esp_ip, 'cmd': cmd, 'result': result
+                }))
+        except Exception as e:
+            logger.error(f"[MQTT] Lỗi xử lý message: {e}")
+
+    def publish(self, topic, payload, qos=1):
+        if self.client and self.connected:
+            self.client.publish(topic, payload, qos=qos)
+
+    def _get_default_esp_ip(self):
+        """Lấy IP ESP32 đầu tiên từ cache."""
+        if device_cache:
+            return next(iter(device_cache))
+        return None
+
+    @property
+    def status(self):
+        return {'connected': self.connected, 'broker': MQTT_BROKER}
+
+
+mqtt_relay = MQTTRelay()
 
 # ============================================================
 # UDP Communication Functions
@@ -126,8 +226,8 @@ def scan_network_parallel(network_prefix="192.168.1", max_workers=SCAN_WORKERS):
 
 @app.route('/')
 def serve_index():
-    """Serve index.html"""
-    return send_file('index.html', mimetype='text/html')
+    """Serve home page"""
+    return send_file('home.html', mimetype='text/html')
 
 
 @app.route('/api/health')
@@ -594,11 +694,202 @@ def serve_static(filename):
 
 @app.errorhandler(404)
 def not_found(error):
-    """404 handler - try to serve index.html for SPA routing"""
+    """404 handler - serve home page for unknown routes"""
     if request.path.startswith('/api/'):
         return jsonify({"error": "API endpoint not found"}), 404
-    return send_file('index.html'), 200
+    return send_file('home.html'), 200
 
+
+# ============================================================
+# Device Control & Monitoring APIs
+# ============================================================
+
+# Track connected devices (for heartbeat/listing)
+connected_devices = {}
+device_last_heartbeat = {}
+
+@app.route('/api/scan')
+def api_scan_get():
+    """Scan network for ESP32 devices (GET version)"""
+    try:
+        prefix = request.args.get('prefix', '192.168.1')
+        
+        logger.info(f"[SCAN] Scanning network {prefix}.*...")
+        start = time.time()
+        
+        devices = scan_network_parallel(prefix, max_workers=SCAN_WORKERS)
+        elapsed = time.time() - start
+        
+        # Format for web UI
+        device_list = []
+        for d in devices:
+            device_list.append({
+                "ip": d["ip"],
+                "port": d.get("port", 3333),
+                "name": "Waterfall_" + d["ip"].split('.')[-1],
+                "status": "Online",
+                "is_online": True,
+                "last_seen": str(int(elapsed*1000)) + "ms ago",
+                "info": d.get("info", "")
+            })
+        
+        logger.info(f"[OK] Found {len(device_list)} device(s)")
+        
+        return jsonify({
+            "success": True,
+            "devices": device_list
+        })
+    
+    except Exception as e:
+        logger.error(f"Scan error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route('/api/esp-devices')
+def api_esp_devices():
+    """Get list of ESP32 devices (simulated heartbeat)"""
+    try:
+        # Re-scan network to get current devices
+        devices = scan_network_parallel("192.168.1", max_workers=10)
+        
+        device_list = []
+        for i, d in enumerate(devices):
+            device_list.append({
+                "device_key": "Waterfall_" + d["ip"],
+                "name": "Waterfall_" + d["ip"].split('.')[-1],
+                "ip": d["ip"],
+                "port": d.get("port", 3333),
+                "layer_index": i + 1,
+                "is_online": True,
+                "status": "Online",
+                "last_heartbeat": "Just now",
+                "heartbeat_count": 1,
+                "uptime": "N/A",
+                "ping_ms": 0,
+                "ping_status": "OK",
+                "ping_color": "#27ae60",
+                "ping_icon": "OK"
+            })
+        
+        return jsonify(device_list)
+    
+    except Exception as e:
+        logger.error(f"ESP devices error: {e}")
+        return jsonify([]), 500
+
+
+@app.route('/api/send-command', methods=['POST'])
+def api_send_command():
+    """Send command to ESP32 device"""
+    try:
+        data = request.get_json()
+        esp_ip = data.get('ip')
+        esp_port = data.get('port', 3333)
+        command = data.get('command', '')
+        
+        if not esp_ip or not command:
+            return jsonify({
+                "success": False,
+                "error": "Missing ip or command"
+            }), 400
+        
+        logger.info(f"[CMD] Sending to {esp_ip}: {command}")
+        
+        # Send UDP command
+        result = send_udp_cmd(esp_ip, command, timeout=2.0, suppress_errors=False)
+        
+        if result and not result.startswith("ERROR"):
+            return jsonify({
+                "success": True,
+                "response": result
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": result or "No response"
+            })
+    
+    except Exception as e:
+        logger.error(f"Send command error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route('/api/device-status')
+def api_device_status():
+    """Get device status for monitoring"""
+    try:
+        device_ip = request.args.get('ip', '')
+        
+        if not device_ip:
+            return jsonify({
+                "connected": False,
+                "error": "No IP provided"
+            })
+        
+        # Try to get info from device
+        info = send_udp_cmd(device_ip, "GET_INFO", timeout=1.0)
+        
+        connected = info is not None and not info.startswith("ERROR")
+        
+        return jsonify({
+            "connected": connected,
+            "ip": device_ip,
+            "frames_sent": 0,
+            "active_valves": 0,
+            "uptime": "N/A",
+            "heap": 0
+        })
+    
+    except Exception as e:
+        logger.error(f"Device status error: {e}")
+        return jsonify({
+            "connected": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route('/api/test-all-valves', methods=['POST'])
+def api_test_all_valves():
+    """Test all valves sequentially"""
+    try:
+        data = request.get_json() or {}
+        esp_ip = data.get('ip')
+        
+        if not esp_ip:
+            # Try to scan for any device
+            devices = scan_network_parallel("192.168.1", max_workers=10)
+            if devices:
+                esp_ip = devices[0]["ip"]
+        
+        if not esp_ip:
+            return jsonify({"success": False, "error": "No device found"}), 400
+        
+        # Start test sequence
+        result = send_udp_cmd(esp_ip, "TEST_SEQ", timeout=5.0)
+        
+        return jsonify({
+            "success": True,
+            "device": esp_ip,
+            "response": result
+        })
+    
+    except Exception as e:
+        logger.error(f"Test all valves error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# ============================================================
+# Error Handlers
+# ============================================================
 
 @app.errorhandler(500)
 def server_error(error):
@@ -608,16 +899,65 @@ def server_error(error):
 
 
 # ============================================================
+# MQTT API Endpoints
+# ============================================================
+
+@app.route('/api/mqtt/status', methods=['GET'])
+def api_mqtt_status():
+    """Trạng thái kết nối MQTT broker"""
+    return jsonify(mqtt_relay.status)
+
+
+@app.route('/api/mqtt/publish', methods=['POST'])
+def api_mqtt_publish():
+    """Gửi lệnh đến ESP32 qua MQTT (dùng khi truy cập từ internet)"""
+    data = request.get_json() or {}
+    topic   = data.get('topic', TOPIC_VALVE)
+    payload = data.get('payload')
+    esp_ip  = data.get('ip', '')
+
+    if not payload:
+        return jsonify({"error": "Thiếu payload"}), 400
+
+    if not mqtt_relay.connected:
+        # Fallback: gửi trực tiếp qua UDP nếu cùng mạng LAN
+        if esp_ip:
+            result = send_udp_cmd(esp_ip, payload)
+            return jsonify({"success": bool(result), "method": "udp", "result": result})
+        return jsonify({"error": "MQTT chưa kết nối và không có IP ESP32"}), 503
+
+    msg = json.dumps({"ip": esp_ip, "cmd": payload}) if esp_ip else payload
+    mqtt_relay.publish(topic, msg)
+    return jsonify({"success": True, "method": "mqtt", "topic": topic})
+
+
+# ============================================================
 # Main
 # ============================================================
 
+def get_local_ip():
+    """Get the machine's LAN IP address"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "localhost"
+
+
 def main():
+    local_ip = get_local_ip()
     logger.info("╔═══════════════════════════════════════════════╗")
     logger.info("║  Water Curtain Backend — Flask Server         ║")
     logger.info("╚═══════════════════════════════════════════════╝")
-    logger.info(f"\n[*] Backend running on http://localhost:{PORT_BACKEND}")
     logger.info(f"[*] Serving: {os.getcwd()}")
-    logger.info(f"[*] Open: http://localhost:{PORT_BACKEND}\n")
+    logger.info(f"[*] Local:   http://localhost:{PORT_BACKEND}")
+    logger.info(f"[*] LAN:     http://{local_ip}:{PORT_BACKEND}  ← dùng địa chỉ này cho điện thoại/máy khác\n")
+
+    # Khởi động MQTT relay (nếu có cấu hình)
+    mqtt_relay.start()
     
     # Run Flask
     app.run(

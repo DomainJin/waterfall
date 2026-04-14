@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Home - WATERFALL</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="navbar-container">
+        <nav class="navbar">
+            <ul>
+                <li><a href="home.html" class="active">🏠 Home</a></li>
+                <li><a href="control.html">🎛️ Control</a></li>
+                <li><a href="monitor.html">📊 Monitor</a></li>
+                <li><a href="config.html">⚙️ Config</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <div class="content">
+        <!-- Welcome Card -->
+        <div class="card">
+            <div class="card-header" style="background-color: #3498db;">
+                <h2>💧 WATERFALL CONTROL SYSTEM</h2>
+            </div>
+        </div>
+
+        <!-- Scan Network Card -->
+        <div class="card">
+            <div class="card-header" style="background-color: #27ae60; display: flex; justify-content: space-between; align-items: center;">
+                <h2 id="esp-count" style="margin: 0;">📡 ESP32 DEVICES (0 Online / 0 Total)</h2>
+                <button class="btn btn-warning" onclick="scanNetwork()" style="padding: 4px 10px; font-size: 11px; white-space: nowrap;">
+                    🔍 Scan
+                </button>
+            </div>
+            <div class="card-content">
+                <div style="margin-bottom: 10px;">
+                    <label>IP Range:</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span>192.168.1.</span>
+                        <input type="number" id="scan-from" value="1" min="1" max="254" style="width: 60px;">
+                        <span>—</span>
+                        <input type="number" id="scan-to" value="254" min="1" max="254" style="width: 60px;">
+                    </div>
+                </div>
+                <div id="scan-progress" style="display: none; margin: 10px 0;">
+                    <p style="color: #3498db;">🔄 Đang quét...</p>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="scan-progress-bar" style="width: 0%;"></div>
+                    </div>
+                </div>
+                <div id="esp-devices-list">
+                    <p class="empty-state">⏳ Click "Scan" để tìm thiết bị ESP32...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Connect Card -->
+        <div class="card">
+            <div class="card-header" style="background-color: #9b59b6;">
+                <h3>🔗 QUICK CONNECT</h3>
+            </div>
+            <div class="card-content">
+                <label>IP Address:</label>
+                <input type="text" id="manual-ip" placeholder="192.168.1.241" value="192.168.1.241">
+                <label>Port:</label>
+                <input type="number" id="manual-port" placeholder="3333" value="3333">
+                <button class="btn btn-primary" onclick="manualConnect()">🔗 Connect</button>
+            </div>
+        </div>
+
+        <!-- Selected Device Info -->
+        <div class="device-info-banner" id="selected-device-banner" style="display: none;">
+            <p class="device-info-display" id="device-info-display">⚠️ Chưa chọn thiết bị</p>
+            <button class="btn btn-danger" onclick="disconnectDevice()" style="margin-left: 10px; padding: 5px 10px;">❌ Disconnect</button>
+        </div>
+
+        <!-- Link to Main Control -->
+        <div class="card">
+            <div class="card-header" style="background-color: #f39c12;">
+                <h3>🎛️ GO TO CONTROL PANEL</h3>
+            </div>
+            <div class="card-content">
+                <a href="control.html" class="btn btn-primary" style="text-align: center; display: block;">
+                    🚀 Open Main Control (control.html)
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="control.js"></script>
+    <script>
+        let devicesData = [];
+        const MAX_LAYERS = 6;
+
+        // Scan network for ESP32 devices
+        function scanNetwork() {
+            const from = parseInt(document.getElementById('scan-from').value) || 1;
+            const to = parseInt(document.getElementById('scan-to').value) || 254;
+            
+            const progressEl = document.getElementById('scan-progress');
+            const progressBar = document.getElementById('scan-progress-bar');
+            const listContainer = document.getElementById('esp-devices-list');
+            
+            progressEl.style.display = 'block';
+            progressBar.style.width = '0%';
+            listContainer.innerHTML = '<p class="empty-state">🔄 Đang quét network...</p>';
+            
+            // Use POST scan like Control tab
+            fetch('/api/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prefix: '192.168.1',
+                    workers: 30
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    progressEl.style.display = 'none';
+                    if (data.success) {
+                        devicesData = data.devices || [];
+                    } else {
+                        devicesData = [];
+                    }
+                    renderDevices();
+                })
+                .catch(error => {
+                    progressEl.style.display = 'none';
+                    listContainer.innerHTML = '<p class="empty-state">❌ Lỗi quét: ' + error.message + '</p>';
+                });
+        }
+
+        function renderDevices() {
+            const listContainer = document.getElementById('esp-devices-list');
+            const countHeader = document.getElementById('esp-count');
+            
+            const onlineCount = devicesData.filter(d => d.is_online === true || d.status === 'Online').length;
+            countHeader.textContent = `📡 ESP32 DEVICES (${onlineCount} Online / ${devicesData.length} Total)`;
+            
+            if (devicesData.length === 0) {
+                listContainer.innerHTML = '<p class="empty-state">❌ Không tìm thấy thiết bị nào</p>';
+                return;
+            }
+            
+            let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">';
+            
+            devicesData.forEach((device, idx) => {
+                // Check is_online or status from backend response
+                const isOnline = device.is_online === true || device.status === 'Online';
+                const bgColor = isOnline ? '#e8f5e8' : '#ffe6e6';
+                const statusColor = isOnline ? '#27ae60' : '#e74c3c';
+                const statusIcon = isOnline ? '🟢' : '🔴';
+                
+                html += `
+                    <div class="device-card" style="background-color: ${bgColor};">
+                        <div class="device-status" style="background-color: ${statusColor};">
+                            <span class="status-icon">${statusIcon}</span>
+                            <span class="status-text">${isOnline ? 'Online' : 'Offline'}</span>
+                        </div>
+                        <div class="device-name">📱 ${device.name || 'ESP32'}</div>
+                        <div class="device-ip">🌐 ${device.ip}:${device.port || 3333}</div>
+                        <div class="device-stats">
+                            <div>⏰ Last seen: ${device.last_seen || 'N/A'}</div>
+                        </div>
+                        <button class="btn-access" onclick="selectDevice('${device.ip}', ${device.port || 3333})">🔗 Access</button>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            listContainer.innerHTML = html;
+        }
+
+        // Manual connect to device
+        function manualConnect() {
+            const ip = document.getElementById('manual-ip').value.trim();
+            const port = parseInt(document.getElementById('manual-port').value) || 3333;
+            
+            if (!ip) {
+                alert('Vui lòng nhập địa chỉ IP!');
+                return;
+            }
+            
+            selectDevice(ip, port);
+        }
+
+        // Select device and store in localStorage
+        function selectDevice(ip, port) {
+            // Exit Config All mode
+            localStorage.removeItem('configAllActive');
+            localStorage.removeItem('configAllDevices');
+            
+            // Store selected device
+            localStorage.setItem('selected_esp_ip', ip);
+            localStorage.setItem('selected_esp_port', port);
+            localStorage.setItem('selected_device_key', `Waterfall_${ip}`);
+            
+            // Show banner
+            const banner = document.getElementById('selected-device-banner');
+            const display = document.getElementById('device-info-display');
+            
+            banner.style.display = 'flex';
+            display.textContent = `🎯 Đang điều khiển: ${ip}:${port}`;
+            display.style.color = '#27ae60';
+            
+            alert(`✓ Đã kết nối với ${ip}:${port}\n\nBạn có thể điều khiển thiết bị này từ tab Control.`);
+        }
+
+        // Disconnect device
+        function disconnectDevice() {
+            localStorage.removeItem('selected_esp_ip');
+            localStorage.removeItem('selected_esp_port');
+            localStorage.removeItem('selected_device_key');
+            
+            document.getElementById('selected-device-banner').style.display = 'none';
+        }
+
+        // Check if device already selected on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedIp = localStorage.getItem('selected_esp_ip');
+            const savedPort = localStorage.getItem('selected_esp_port');
+            
+            if (savedIp && savedPort) {
+                document.getElementById('selected-device-banner').style.display = 'flex';
+                document.getElementById('device-info-display').textContent = `🎯 Đang điều khiển: ${savedIp}:${savedPort}`;
+                document.getElementById('device-info-display').style.color = '#27ae60';
+            }
+        });
+    </script>
+</body>
+</html>

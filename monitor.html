@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor - WATERFALL</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="navbar-container">
+        <nav class="navbar">
+            <ul>
+                <li><a href="home.html">🏠 Home</a></li>
+                <li><a href="control.html">🎛️ Control</a></li>
+                <li><a href="monitor.html" class="active">📊 Monitor</a></li>
+                <li><a href="config.html">⚙️ Config</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <div class="content">
+        <!-- Device Info -->
+        <div class="device-info-banner">
+            <p class="device-info-display" id="device-info-display">⚠️ Chưa chọn thiết bị</p>
+        </div>
+
+        <!-- Real-time Metrics -->
+        <div class="grid-4">
+            <div class="metric-card" style="--card-color: #3498db;">
+                <div class="metric-header">📱 CONNECTION</div>
+                <div class="metric-value" id="connection-status">N/A</div>
+            </div>
+            <div class="metric-card" style="--card-color: #27ae60;">
+                <div class="metric-header">📺 FRAMES SENT</div>
+                <div class="metric-value" id="frames-sent">0</div>
+            </div>
+            <div class="metric-card" style="--card-color: #f39c12;">
+                <div class="metric-header">⏱️ FPS</div>
+                <div class="metric-value" id="fps-display">0</div>
+            </div>
+            <div class="metric-card" style="--card-color: #9b59b6;">
+                <div class="metric-header">💧 ACTIVE VALVES</div>
+                <div class="metric-value" id="active-valves">0</div>
+            </div>
+        </div>
+
+        <!-- Device Status -->
+        <div class="card">
+            <div class="card-header" style="background-color: #27ae60;">
+                <h2>📡 ESP32 DEVICE STATUS</h2>
+            </div>
+            <div class="card-content">
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+                    <div class="status-panel">
+                        <h3>IP Address</h3>
+                        <p id="device-ip" style="font-family: var(--mono); color: var(--accent);">—</p>
+                    </div>
+                    <div class="status-panel">
+                        <h3>Uptime</h3>
+                        <p id="device-uptime">—</p>
+                    </div>
+                    <div class="status-panel">
+                        <h3>Free Heap</h3>
+                        <p id="device-heap">—</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Chart -->
+        <div class="card">
+            <div class="card-header" style="background-color: #3498db;">
+                <h2>📈 REAL-TIME MONITORING</h2>
+            </div>
+            <div class="card-content">
+                <canvas id="monitor-chart" height="100"></canvas>
+            </div>
+        </div>
+
+        <!-- Network Stats -->
+        <div class="card">
+            <div class="card-header" style="background-color: #f39c12;">
+                <h2>🌐 NETWORK STATS</h2>
+            </div>
+            <div class="card-content">
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px;">
+                    <div class="status-panel">
+                        <h3>Packets Sent</h3>
+                        <p id="packets-sent">0</p>
+                    </div>
+                    <div class="status-panel">
+                        <h3>Packets Lost</h3>
+                        <p id="packets-lost">0</p>
+                    </div>
+                    <div class="status-panel">
+                        <h3>Avg Latency</h3>
+                        <p id="avg-latency">0 ms</p>
+                    </div>
+                    <div class="status-panel">
+                        <h3>Error Rate</h3>
+                        <p id="error-rate">0%</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Command -->
+        <div class="card">
+            <div class="card-header" style="background-color: #e74c3c;">
+                <h2>💻 CUSTOM COMMAND</h2>
+            </div>
+            <div class="card-content">
+                <div class="command-input">
+                    <label>Command:</label>
+                    <input type="text" placeholder="What do u want?" id="custom-command">
+                    <button class="btn btn-danger" onclick="sendCustomCommand()">📤 Send</button>
+                </div>
+                <p class="status-text" id="command-status">Chưa gửi command</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="control.js"></script>
+    <script>
+        // Chart setup
+        let monitorChart;
+        const maxDataPoints = 50;
+        const fpsData = [];
+        const valveData = [];
+        const labels = [];
+        
+        function initChart() {
+            const ctx = document.getElementById('monitor-chart').getContext('2d');
+            
+            for (let i = 0; i < maxDataPoints; i++) {
+                labels.push(i);
+                fpsData.push(0);
+                valveData.push(0);
+            }
+            
+            monitorChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'FPS',
+                        data: fpsData,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }, {
+                        label: 'Active Valves',
+                        data: valveData,
+                        borderColor: '#27ae60',
+                        backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    animation: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 30,
+                            title: {
+                                display: true,
+                                text: 'FPS'
+                            }
+                        },
+                        y1: {
+                            beginAtZero: true,
+                            max: 80,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Valves'
+                            },
+                            grid: {
+                                drawOnChartArea: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update device info
+        function updateDeviceInfo() {
+            const deviceIp = localStorage.getItem('selected_esp_ip');
+            const devicePort = localStorage.getItem('selected_esp_port');
+            const deviceKey = localStorage.getItem('selected_device_key');
+            
+            const banner = document.querySelector('.device-info-display');
+            if (deviceIp && devicePort) {
+                banner.textContent = `📡 Monitoring: ${deviceIp}:${devicePort}`;
+                document.getElementById('device-ip').textContent = deviceIp;
+            } else {
+                banner.textContent = '⚠️ Chưa chọn thiết bị - Vui lòng vào Home và click Access';
+            }
+        }
+
+        // Fetch status from device via UDP
+        let lastFramesSent = 0;
+        let lastFpsUpdate = Date.now();
+        
+        function updateDeviceStatus() {
+            const deviceIp = localStorage.getItem('selected_esp_ip');
+            if (!deviceIp) {
+                document.getElementById('connection-status').textContent = '⚠️ No device';
+                return;
+            }
+            
+            // Try to get device info via UDP
+            fetch('/api/send-command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: deviceIp, port: 8888, command: 'GET_INFO' })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.response) {
+                    document.getElementById('connection-status').textContent = '🟢 Connected';
+                    // Parse response like "OK:ESP32:192.168.1.241 WS:3333 V:1.0"
+                    const info = data.response;
+                    document.getElementById('device-ip').textContent = deviceIp;
+                    document.getElementById('device-uptime').textContent = 'Running';
+                    document.getElementById('device-heap').textContent = 'N/A';
+                } else {
+                    document.getElementById('connection-status').textContent = '🔴 Offline';
+                }
+                
+                // Update static displays
+                document.getElementById('frames-sent').textContent = '0';
+                document.getElementById('fps-display').textContent = '0';
+                document.getElementById('active-valves').textContent = '0';
+            })
+            .catch(e => {
+                document.getElementById('connection-status').textContent = '🔴 Error: ' + e.message;
+            });
+        }
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', function() {
+            updateDeviceInfo();
+            initChart();
+            
+            // Update every 1 second
+            setInterval(updateDeviceStatus, 1000);
+        });
+    </script>
+</body>
+</html>

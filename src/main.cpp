@@ -8,6 +8,8 @@
 #include "scheduler.h"
 #include "sd_manager.h"
 #include "config_server.h"
+#include "ble_config.h"
+#include "mqtt_manager.h"
 
 // ============================================================
 //  Global objects
@@ -18,6 +20,8 @@ TcpServer     g_tcp(g_queue, g_valve);
 Scheduler     g_scheduler(g_queue, g_valve, g_tcp);
 SDManager     g_sd;
 ConfigServer  g_cfg;
+BLEConfig     g_ble;
+MQTTManager   g_mqtt;
 
 // ============================================================
 //  WiFi setup
@@ -60,8 +64,17 @@ void setup() {
     g_valve.begin();
     Serial.printf("[SETUP] ✓ Valve driver initialized\n");
     Serial.flush();
-    
+
+    // Setup BLE FIRST (before WiFi to avoid conflicts)
+    Serial.printf("\n[SETUP] Initializing BLE...\n");
+    Serial.flush();
+    g_ble.begin();
+    Serial.printf("[SETUP] ✓ BLE initialized\n");
+    Serial.flush();
+
     // Setup WiFi
+    Serial.printf("\n[SETUP] Connecting to WiFi...\n");
+    Serial.flush();
     setupWiFi();
     Serial.printf("[SETUP] ✓ WiFi setup done\n");
     Serial.flush();
@@ -85,13 +98,31 @@ void setup() {
     // Setup UDP Config server
     Serial.printf("[SETUP] Starting UDP Config server...\n");
     Serial.flush();
-    g_cfg.begin(&g_sd);  // Pass SDManager reference
+    g_cfg.begin(&g_sd);
     Serial.printf("[SETUP] ✓ UDP Config server started (port 8888)\n");
     Serial.flush();
+
+    // Setup MQTT (kết nối cloud — chỉ khi WiFi thành công)
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("[SETUP] Starting MQTT client...\n");
+        Serial.flush();
+        g_mqtt.begin(MQTT_BROKER_HOST, MQTT_BROKER_PORT,
+                     MQTT_USER, MQTT_PASSWORD);
+        // Xử lý lệnh từ cloud
+        g_mqtt.onCommand([](const String& topic, const String& payload) {
+            Serial.printf("[MQTT] Cmd: %s\n", payload.c_str());
+            // TODO: parse JSON payload và điều khiển van
+            // Ví dụ: {"cmd":"ALL_OFF"} hoặc {"frame":"<hex>"}
+        });
+        Serial.printf("[SETUP] ✓ MQTT client started\n");
+        Serial.flush();
+    }
 
     Serial.println("\n[SETUP] ✓ Ready!");
     Serial.println("  WebSocket:  ws://<ESP32_IP>:3333");
     Serial.println("  Config UDP: <ESP32_IP>:8888");
+    Serial.println("  BLE:        Waterfall_Config");
+    Serial.println("  MQTT:       " MQTT_BROKER_HOST);
     Serial.flush();
 }
 
@@ -126,6 +157,17 @@ void loop() {
     // ─────────────────────────────────────────────────────
     g_cfg.tick();
     
+    // ─────────────────────────────────────────────────────
+    // PRIORITY 4: Handle BLE Config events
+    // (non-blocking BLE processing)
+    // ─────────────────────────────────────────────────────
+    g_ble.tick();
+
+    // ─────────────────────────────────────────────────────
+    // PRIORITY 5: Handle MQTT cloud messages
+    // ─────────────────────────────────────────────────────
+    g_mqtt.tick();
+
     // ─────────────────────────────────────────────────────
     // Heartbeat: Show ESP is alive every 5 seconds
     // (Optional for debugging - disabled by default)
