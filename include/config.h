@@ -56,6 +56,6 @@
 // ── MQTT Cloud (để trống nếu không dùng) ─────────────────────
 // Điền thông tin VPS cloud của bạn vào đây
 #define MQTT_BROKER_HOST  "waterfall.domainjin.io.vn"
-#define MQTT_BROKER_PORT  8883        // TLS port
+#define MQTT_BROKER_PORT  1883        // TEST: plain port (đổi lại 8883 sau khi test xong)
 #define MQTT_USER         "waterfall"
 #define MQTT_PASSWORD     "Dmc0918273645!"

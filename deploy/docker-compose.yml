@@ -34,6 +34,7 @@ services:
       - mosquitto_logs:/mosquitto/log
     ports:
       - "8883:8883"   # MQTT over TLS  ← ESP32 kết nối vào đây
+      - "1883:1883"   # MQTT plain ← test tạm thời
       - "9001:9001"   # WebSocket MQTT (optional)
     networks:
       - internal

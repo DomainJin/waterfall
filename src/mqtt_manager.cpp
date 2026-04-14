@@ -19,9 +19,11 @@ void MQTTManager::begin(const char* broker,
     _password = password;
     _clientId = clientId;
 
+#ifndef MQTT_USE_PLAIN_CLIENT
     // Bỏ qua xác thực CA cert (dùng cho development)
     // Production: _wifiClient.setCACert(root_ca_pem);
     _wifiClient.setInsecure();
+#endif
 
     _client.setServer(_broker, _port);
     _client.setCallback(_onMessage);

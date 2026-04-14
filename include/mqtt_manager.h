@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+// TEST: plain client (comment out to revert to TLS)
+#define MQTT_USE_PLAIN_CLIENT
 #include <PubSubClient.h>
 
 // ── MQTT Topics (phải khớp với backend.py) ────────────────────────────────
@@ -38,7 +40,11 @@ public:
     bool isConnected() { return _client.connected(); }
 
 private:
+#ifdef MQTT_USE_PLAIN_CLIENT
+    WiFiClient       _wifiClient;
+#else
     WiFiClientSecure _wifiClient;
+#endif
     PubSubClient     _client;
     MQTTCommandCallback _callback;
 
