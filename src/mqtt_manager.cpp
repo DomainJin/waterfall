@@ -50,11 +50,12 @@ void MQTTManager::tick() {
 void MQTTManager::_reconnect() {
     Serial.printf("[MQTT] Đang kết nối %s:%u...\n", _broker, _port);
 
+    String willPayload = "{\"online\":false,\"name\":\"" + String(_clientId) + "\"}";
     bool ok = _client.connect(_clientId, _user, _password,
-                               MQTT_TOPIC_STATUS,  // will topic
-                               1,                   // will QoS
-                               true,                // will retain
-                               "{\"online\":false}");// will payload
+                               MQTT_TOPIC_STATUS,          // will topic
+                               1,                           // will QoS
+                               true,                        // will retain
+                               willPayload.c_str());        // will payload
 
     if (ok) {
         Serial.println("[MQTT] Kết nối thành công");
@@ -63,8 +64,10 @@ void MQTTManager::_reconnect() {
         _client.subscribe(MQTT_TOPIC_VALVE,  1);
         _client.subscribe(MQTT_TOPIC_STREAM, 1);
 
-        // Thông báo online
-        publishStatus("{\"online\":true}");
+        // Thông báo online kèm IP
+        String ip = WiFi.localIP().toString();
+        String status = "{\"online\":true,\"name\":\"" + String(_clientId) + "\",\"ip\":\"" + ip + "\"}";
+        publishStatus(status);
     } else {
         Serial.printf("[MQTT] Thất bại, rc=%d. Thử lại sau %lus\n",
                       _client.state(), RECONNECT_INTERVAL / 1000);

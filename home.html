@@ -5,6 +5,48 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Home - WATERFALL</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        .device-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 12px;
+            margin-top: 8px;
+        }
+        .device-card {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--card);
+        }
+        .device-card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .device-card-header.online  { background: #d4edda; color: #155724; }
+        .device-card-header.offline { background: #f8d7da; color: #721c24; }
+        .device-card-body {
+            padding: 10px 12px;
+            font-size: 12px;
+            color: var(--text);
+        }
+        .device-card-body div { margin-bottom: 4px; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .dot.online  { background: #27ae60; }
+        .dot.offline { background: #e74c3c; }
+        .device-card-footer {
+            padding: 8px 12px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+        }
+        .empty-state { text-align: center; color: #888; padding: 20px; }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    </style>
 </head>
 <body>
     <div id="navbar-container">
@@ -19,39 +61,22 @@
     </div>
 
     <div class="content">
-        <!-- Welcome Card -->
+        <!-- Title -->
         <div class="card">
             <div class="card-header" style="background-color: #3498db;">
                 <h2>💧 WATERFALL CONTROL SYSTEM</h2>
             </div>
         </div>
 
-        <!-- Scan Network Card -->
+        <!-- MQTT Devices Card -->
         <div class="card">
             <div class="card-header" style="background-color: #27ae60; display: flex; justify-content: space-between; align-items: center;">
-                <h2 id="esp-count" style="margin: 0;">📡 ESP32 DEVICES (0 Online / 0 Total)</h2>
-                <button class="btn btn-warning" onclick="scanNetwork()" style="padding: 4px 10px; font-size: 11px; white-space: nowrap;">
-                    🔍 Scan
-                </button>
+                <h2 id="device-count" style="margin: 0;">📡 ESP32 DEVICES (0 Online / 0 Total)</h2>
+                <span id="refresh-indicator" style="font-size: 11px; opacity: 0.8;">auto-refresh 5s</span>
             </div>
             <div class="card-content">
-                <div style="margin-bottom: 10px;">
-                    <label>IP Range:</label>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <span>192.168.1.</span>
-                        <input type="number" id="scan-from" value="1" min="1" max="254" style="width: 60px;">
-                        <span>—</span>
-                        <input type="number" id="scan-to" value="254" min="1" max="254" style="width: 60px;">
-                    </div>
-                </div>
-                <div id="scan-progress" style="display: none; margin: 10px 0;">
-                    <p style="color: #3498db;">🔄 Đang quét...</p>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="scan-progress-bar" style="width: 0%;"></div>
-                    </div>
-                </div>
-                <div id="esp-devices-list">
-                    <p class="empty-state">⏳ Click "Scan" để tìm thiết bị ESP32...</p>
+                <div id="device-list">
+                    <p class="empty-state pulse">⏳ Đang chờ thiết bị kết nối qua MQTT...</p>
                 </div>
             </div>
         </div>
@@ -59,7 +84,7 @@
         <!-- Quick Connect Card -->
         <div class="card">
             <div class="card-header" style="background-color: #9b59b6;">
-                <h3>🔗 QUICK CONNECT</h3>
+                <h3>🔗 QUICK CONNECT (LAN)</h3>
             </div>
             <div class="card-content">
                 <label>IP Address:</label>
@@ -70,13 +95,13 @@
             </div>
         </div>
 
-        <!-- Selected Device Info -->
+        <!-- Selected Device Banner -->
         <div class="device-info-banner" id="selected-device-banner" style="display: none;">
             <p class="device-info-display" id="device-info-display">⚠️ Chưa chọn thiết bị</p>
             <button class="btn btn-danger" onclick="disconnectDevice()" style="margin-left: 10px; padding: 5px 10px;">❌ Disconnect</button>
         </div>
 
-        <!-- Link to Main Control -->
+        <!-- Go to Control -->
         <div class="card">
             <div class="card-header" style="background-color: #f39c12;">
                 <h3>🎛️ GO TO CONTROL PANEL</h3>
@@ -89,144 +114,148 @@
         </div>
     </div>
 
-    <script src="control.js"></script>
     <script>
-        let devicesData = [];
-        const MAX_LAYERS = 6;
+        // Lưu devices đã từng thấy vào localStorage
+        const STORAGE_KEY = 'known_mqtt_devices';
 
-        // Scan network for ESP32 devices
-        function scanNetwork() {
-            const from = parseInt(document.getElementById('scan-from').value) || 1;
-            const to = parseInt(document.getElementById('scan-to').value) || 254;
-            
-            const progressEl = document.getElementById('scan-progress');
-            const progressBar = document.getElementById('scan-progress-bar');
-            const listContainer = document.getElementById('esp-devices-list');
-            
-            progressEl.style.display = 'block';
-            progressBar.style.width = '0%';
-            listContainer.innerHTML = '<p class="empty-state">🔄 Đang quét network...</p>';
-            
-            // Use POST scan like Control tab
-            fetch('/api/scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prefix: '192.168.1',
-                    workers: 30
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    progressEl.style.display = 'none';
-                    if (data.success) {
-                        devicesData = data.devices || [];
-                    } else {
-                        devicesData = [];
-                    }
-                    renderDevices();
-                })
-                .catch(error => {
-                    progressEl.style.display = 'none';
-                    listContainer.innerHTML = '<p class="empty-state">❌ Lỗi quét: ' + error.message + '</p>';
+        function loadKnownDevices() {
+            try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+            catch { return {}; }
+        }
+
+        function saveKnownDevices(map) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+        }
+
+        function timeAgo(ts) {
+            if (!ts) return 'N/A';
+            const sec = Math.floor((Date.now() / 1000) - ts);
+            if (sec < 5)  return 'vừa xong';
+            if (sec < 60) return `${sec}s trước`;
+            return `${Math.floor(sec/60)}m trước`;
+        }
+
+        function renderDevices(apiDevices) {
+            // Merge API data với known devices từ localStorage
+            const known = loadKnownDevices();
+
+            // Cập nhật known từ API response
+            apiDevices.forEach(d => {
+                known[d.name] = {
+                    name: d.name,
+                    ip:   d.ip || known[d.name]?.ip || '',
+                    online: d.online,
+                    last_seen: d.last_seen
+                };
+            });
+
+            // Devices offline đã biết (không có trong API response lần này)
+            // giữ nguyên trạng thái offline
+            saveKnownDevices(known);
+
+            const list = Object.values(known);
+            const onlineCount = list.filter(d => d.online).length;
+            document.getElementById('device-count').textContent =
+                `📡 ESP32 DEVICES (${onlineCount} Online / ${list.length} Total)`;
+
+            const container = document.getElementById('device-list');
+
+            if (list.length === 0) {
+                container.innerHTML = '<p class="empty-state pulse">⏳ Đang chờ thiết bị kết nối qua MQTT...</p>';
+                return;
+            }
+
+            // Sắp xếp: online trước, rồi theo tên
+            list.sort((a, b) => (b.online - a.online) || a.name.localeCompare(b.name));
+
+            const html = `<div class="device-grid">${list.map(d => {
+                const cls = d.online ? 'online' : 'offline';
+                const icon = d.online ? '🟢' : '🔴';
+                const savedIp = localStorage.getItem('selected_esp_ip');
+                const isSelected = savedIp && savedIp === d.ip;
+                return `
+                <div class="device-card">
+                    <div class="device-card-header ${cls}">
+                        <div class="dot ${cls}"></div>
+                        ${icon} ${d.name} ${isSelected ? '⭐' : ''}
+                    </div>
+                    <div class="device-card-body">
+                        <div>🌐 IP: <b>${d.ip || '—'}</b></div>
+                        <div>⏰ Last seen: ${timeAgo(d.last_seen)}</div>
+                        <div>📶 Status: <b>${d.online ? 'Online' : 'Offline'}</b></div>
+                    </div>
+                    <div class="device-card-footer">
+                        ${d.ip ? `<button class="btn btn-primary" style="flex:1;padding:5px;font-size:11px"
+                            onclick="selectDevice('${d.ip}', 3333)">🔗 Select</button>` : ''}
+                        <button class="btn btn-danger" style="padding:5px 8px;font-size:11px"
+                            onclick="forgetDevice('${d.name}')">🗑️</button>
+                    </div>
+                </div>`;
+            }).join('')}</div>`;
+
+            container.innerHTML = html;
+        }
+
+        function fetchDevices() {
+            fetch('/api/devices')
+                .then(r => r.json())
+                .then(data => renderDevices(data.devices || []))
+                .catch(() => {
+                    // Server offline — hiện devices từ localStorage với trạng thái offline
+                    const known = loadKnownDevices();
+                    Object.values(known).forEach(d => d.online = false);
+                    renderDevices([]);
                 });
         }
 
-        function renderDevices() {
-            const listContainer = document.getElementById('esp-devices-list');
-            const countHeader = document.getElementById('esp-count');
-            
-            const onlineCount = devicesData.filter(d => d.is_online === true || d.status === 'Online').length;
-            countHeader.textContent = `📡 ESP32 DEVICES (${onlineCount} Online / ${devicesData.length} Total)`;
-            
-            if (devicesData.length === 0) {
-                listContainer.innerHTML = '<p class="empty-state">❌ Không tìm thấy thiết bị nào</p>';
-                return;
-            }
-            
-            let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">';
-            
-            devicesData.forEach((device, idx) => {
-                // Check is_online or status from backend response
-                const isOnline = device.is_online === true || device.status === 'Online';
-                const bgColor = isOnline ? '#e8f5e8' : '#ffe6e6';
-                const statusColor = isOnline ? '#27ae60' : '#e74c3c';
-                const statusIcon = isOnline ? '🟢' : '🔴';
-                
-                html += `
-                    <div class="device-card" style="background-color: ${bgColor};">
-                        <div class="device-status" style="background-color: ${statusColor};">
-                            <span class="status-icon">${statusIcon}</span>
-                            <span class="status-text">${isOnline ? 'Online' : 'Offline'}</span>
-                        </div>
-                        <div class="device-name">📱 ${device.name || 'ESP32'}</div>
-                        <div class="device-ip">🌐 ${device.ip}:${device.port || 3333}</div>
-                        <div class="device-stats">
-                            <div>⏰ Last seen: ${device.last_seen || 'N/A'}</div>
-                        </div>
-                        <button class="btn-access" onclick="selectDevice('${device.ip}', ${device.port || 3333})">🔗 Access</button>
-                    </div>
-                `;
-            });
-            
-            html += '</div>';
-            listContainer.innerHTML = html;
+        function forgetDevice(name) {
+            const known = loadKnownDevices();
+            delete known[name];
+            saveKnownDevices(known);
+            fetchDevices();
         }
 
-        // Manual connect to device
-        function manualConnect() {
-            const ip = document.getElementById('manual-ip').value.trim();
-            const port = parseInt(document.getElementById('manual-port').value) || 3333;
-            
-            if (!ip) {
-                alert('Vui lòng nhập địa chỉ IP!');
-                return;
-            }
-            
-            selectDevice(ip, port);
-        }
-
-        // Select device and store in localStorage
         function selectDevice(ip, port) {
-            // Exit Config All mode
-            localStorage.removeItem('configAllActive');
-            localStorage.removeItem('configAllDevices');
-            
-            // Store selected device
             localStorage.setItem('selected_esp_ip', ip);
             localStorage.setItem('selected_esp_port', port);
-            localStorage.setItem('selected_device_key', `Waterfall_${ip}`);
-            
-            // Show banner
             const banner = document.getElementById('selected-device-banner');
             const display = document.getElementById('device-info-display');
-            
             banner.style.display = 'flex';
             display.textContent = `🎯 Đang điều khiển: ${ip}:${port}`;
             display.style.color = '#27ae60';
-            
-            alert(`✓ Đã kết nối với ${ip}:${port}\n\nBạn có thể điều khiển thiết bị này từ tab Control.`);
+            fetchDevices(); // re-render để cập nhật ⭐
         }
 
-        // Disconnect device
+        function manualConnect() {
+            const ip   = document.getElementById('manual-ip').value.trim();
+            const port = parseInt(document.getElementById('manual-port').value) || 3333;
+            if (!ip) { alert('Vui lòng nhập địa chỉ IP!'); return; }
+            selectDevice(ip, port);
+        }
+
         function disconnectDevice() {
             localStorage.removeItem('selected_esp_ip');
             localStorage.removeItem('selected_esp_port');
-            localStorage.removeItem('selected_device_key');
-            
             document.getElementById('selected-device-banner').style.display = 'none';
+            fetchDevices();
         }
 
-        // Check if device already selected on page load
-        window.addEventListener('DOMContentLoaded', function() {
-            const savedIp = localStorage.getItem('selected_esp_ip');
+        // Init
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedIp   = localStorage.getItem('selected_esp_ip');
             const savedPort = localStorage.getItem('selected_esp_port');
-            
-            if (savedIp && savedPort) {
+            if (savedIp) {
                 document.getElementById('selected-device-banner').style.display = 'flex';
                 document.getElementById('device-info-display').textContent = `🎯 Đang điều khiển: ${savedIp}:${savedPort}`;
                 document.getElementById('device-info-display').style.color = '#27ae60';
             }
+
+            // Hiện ngay known devices từ localStorage trong lúc chờ API
+            const known = loadKnownDevices();
+            if (Object.keys(known).length > 0) renderDevices([]);
+
+            fetchDevices();
+            setInterval(fetchDevices, 5000);
         });
     </script>
 </body>

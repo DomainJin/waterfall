@@ -82,6 +82,7 @@ class MQTTRelay:
         self.client   = None
         self.connected = False
         self._last_status = {}   # cache trạng thái từ ESP32
+        self._esp_devices = {}   # {name: {online, ip, last_seen}}
 
     def start(self):
         if not MQTT_AVAILABLE or not MQTT_BROKER:
@@ -105,7 +106,8 @@ class MQTTRelay:
         if rc == 0:
             self.connected = True
             client.subscribe(TOPIC_CMD, qos=1)
-            logger.info(f"[MQTT] Đã kết nối, subscribe: {TOPIC_CMD}")
+            client.subscribe(TOPIC_STATUS, qos=1)
+            logger.info(f"[MQTT] Đã kết nối, subscribe: {TOPIC_CMD}, {TOPIC_STATUS}")
         else:
             logger.error(f"[MQTT] Kết nối thất bại, rc={rc}")
 
@@ -114,24 +116,31 @@ class MQTTRelay:
         logger.warning(f"[MQTT] Mất kết nối (rc={rc}), tự reconnect...")
 
     def _on_message(self, _client, _userdata, msg):
-        """Nhận lệnh từ web client qua MQTT → relay đến ESP32 qua UDP."""
+        """Nhận message từ MQTT broker."""
         try:
             payload = msg.payload.decode('utf-8')
             topic   = msg.topic
             logger.info(f"[MQTT] Nhận: {topic} → {payload[:80]}")
-
             data = json.loads(payload)
+
+            # ESP32 gửi trạng thái online/offline
+            if topic == TOPIC_STATUS:
+                name = data.get('name', 'esp32')
+                self._esp_devices[name] = {
+                    'name': name,
+                    'ip':   data.get('ip', ''),
+                    'online': data.get('online', False),
+                    'last_seen': time.time()
+                }
+                return
+
+            # Lệnh điều khiển từ web → relay đến ESP32 qua UDP
             esp_ip = data.get('ip') or self._get_default_esp_ip()
             if not esp_ip:
                 return
-
             cmd = data.get('cmd', '')
             if cmd:
-                result = send_udp_cmd(esp_ip, cmd, suppress_errors=False)
-                # Gửi kết quả về MQTT status topic
-                self.publish(TOPIC_STATUS, json.dumps({
-                    'ip': esp_ip, 'cmd': cmd, 'result': result
-                }))
+                send_udp_cmd(esp_ip, cmd, suppress_errors=False)
         except Exception as e:
             logger.error(f"[MQTT] Lỗi xử lý message: {e}")
 
@@ -901,6 +910,25 @@ def server_error(error):
 # ============================================================
 # MQTT API Endpoints
 # ============================================================
+
+@app.route('/api/devices', methods=['GET'])
+def api_devices():
+    """Danh sách ESP32 devices đã từng kết nối qua MQTT."""
+    devices = []
+    for name, info in mqtt_relay._esp_devices.items():
+        online = info.get('online', False)
+        last_seen = info.get('last_seen', 0)
+        # Nếu online nhưng không có heartbeat > 60s → mark offline
+        if online and time.time() - last_seen > 60:
+            online = False
+        devices.append({
+            'name':      name,
+            'ip':        info.get('ip', ''),
+            'online':    online,
+            'last_seen': int(last_seen)
+        })
+    return jsonify({'devices': devices})
+
 
 @app.route('/api/mqtt/status', methods=['GET'])
 def api_mqtt_status():
