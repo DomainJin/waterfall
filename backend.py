@@ -160,6 +160,7 @@ class MQTTRelay:
 
 
 mqtt_relay = MQTTRelay()
+mqtt_relay.start()   # Chạy khi gunicorn import module (không chỉ khi gọi main())
 
 # ============================================================
 # UDP Communication Functions
