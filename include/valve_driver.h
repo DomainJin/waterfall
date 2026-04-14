@@ -45,6 +45,12 @@ public:
         write(zeros);
     }
 
+    void allOn() {
+        uint8_t ones[NUM_BOARDS];
+        memset(ones, 0xFF, NUM_BOARDS);
+        write(ones);
+    }
+
 private:
     // Shift byte without latch (for daisy-chain)
     // ⚠️ Shift LSB first (bit 0) to match web UI mapping

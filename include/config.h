@@ -58,4 +58,4 @@
 #define MQTT_BROKER_HOST  "waterfall.domainjin.io.vn"
 #define MQTT_BROKER_PORT  8883        // TLS port
 #define MQTT_USER         "waterfall"
-#define MQTT_PASSWORD     "change_this_password_123"
+#define MQTT_PASSWORD     "Dmc0918273645!"

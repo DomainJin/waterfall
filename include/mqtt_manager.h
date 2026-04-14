@@ -35,7 +35,7 @@ public:
     // Đăng ký callback nhận lệnh
     void onCommand(MQTTCommandCallback cb) { _callback = cb; }
 
-    bool isConnected() const { return _client.connected(); }
+    bool isConnected() { return _client.connected(); }
 
 private:
     WiFiClientSecure _wifiClient;

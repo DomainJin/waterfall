@@ -110,9 +110,40 @@ void setup() {
                      MQTT_USER, MQTT_PASSWORD);
         // Xử lý lệnh từ cloud
         g_mqtt.onCommand([](const String& topic, const String& payload) {
-            Serial.printf("[MQTT] Cmd: %s\n", payload.c_str());
-            // TODO: parse JSON payload và điều khiển van
-            // Ví dụ: {"cmd":"ALL_OFF"} hoặc {"frame":"<hex>"}
+            Serial.printf("[MQTT] Cmd topic=%s payload=%s\n", topic.c_str(), payload.c_str());
+
+            if (topic == MQTT_TOPIC_VALVE) {
+                // {"cmd":"ALL_OFF"} hoặc {"cmd":"ALL_ON"}
+                if (payload.indexOf("ALL_OFF") >= 0) {
+                    g_valve.allOff();
+                    Serial.println("[MQTT] ALL_OFF executed");
+                } else if (payload.indexOf("ALL_ON") >= 0) {
+                    g_valve.allOn();
+                    Serial.println("[MQTT] ALL_ON executed");
+                }
+            } else if (topic == MQTT_TOPIC_STREAM) {
+                // {"frame":"AABBCC..."} — hex encoded frame bytes
+                int idx = payload.indexOf("\"frame\":\"");
+                if (idx >= 0) {
+                    int start = idx + 9;
+                    int end   = payload.indexOf("\"", start);
+                    if (end > start) {
+                        String hex = payload.substring(start, end);
+                        int len = hex.length() / 2;
+                        if (len == FRAME_BYTES) {
+                            uint8_t raw[FRAME_BYTES];
+                            for (int i = 0; i < FRAME_BYTES; i++) {
+                                raw[i] = strtol(hex.substring(i*2, i*2+2).c_str(), nullptr, 16);
+                            }
+                            Frame f;
+                            memcpy(&f.ts_ms, raw, 4);
+                            memcpy(f.bits, raw + 4, NUM_BOARDS);
+                            g_queue.push(f);
+                            Serial.printf("[MQTT] Frame queued\n");
+                        }
+                    }
+                }
+            }
         });
         Serial.printf("[SETUP] ✓ MQTT client started\n");
         Serial.flush();
