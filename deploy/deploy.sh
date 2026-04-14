@@ -81,24 +81,18 @@ sync_mqtt_certs() {
 
 # ── Lấy SSL cert lần đầu (HTTP challenge) ───────────────────────────────────
 init_ssl() {
-    info "Khởi động Nginx tạm (HTTP only) để lấy cert..."
-    # Dùng nginx config đơn giản chỉ cho certbot challenge
-    docker run --rm -d --name nginx-tmp \
-        -p 80:80 \
-        -v "$DEPLOY_DIR/nginx/conf.d":/etc/nginx/conf.d:ro \
-        nginx:1.25-alpine
-
-    sleep 2
+    info "Lấy SSL cert (standalone mode — Certbot tự mở port 80)..."
+    # Dừng bất kỳ container nào đang chiếm port 80
+    docker stop nginx-tmp 2>/dev/null || true
 
     docker run --rm \
-        -v certbot_www:/var/www/certbot \
         -v certbot_certs:/etc/letsencrypt \
+        -p 80:80 \
         certbot/certbot certonly \
-        --webroot --webroot-path=/var/www/certbot \
+        --standalone \
         --email "$SSL_EMAIL" --agree-tos --no-eff-email \
         -d "$DOMAIN"
 
-    docker stop nginx-tmp || true
     info "SSL cert đã lấy thành công"
 }
 
