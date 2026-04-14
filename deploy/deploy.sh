@@ -50,9 +50,11 @@ setup_mosquitto_passwd() {
     local passwd_file="$DEPLOY_DIR/mosquitto/passwd"
     if [ ! -f "$passwd_file" ]; then
         info "Tạo Mosquitto password file..."
-        docker run --rm eclipse-mosquitto:2.0 \
-            mosquitto_passwd -b -c /dev/stdout "$MQTT_USER" "$MQTT_PASSWORD" \
-            > "$passwd_file"
+        mkdir -p "$DEPLOY_DIR/mosquitto"
+        docker run --rm \
+            -v "$DEPLOY_DIR/mosquitto:/mosquitto/config" \
+            eclipse-mosquitto:2.0 \
+            mosquitto_passwd -b -c /mosquitto/config/passwd "$MQTT_USER" "$MQTT_PASSWORD"
         chmod 600 "$passwd_file"
         info "Passwd file tạo xong: $passwd_file"
     else
