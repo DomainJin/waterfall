@@ -81,14 +81,17 @@ sync_mqtt_certs() {
 
 # ── Lấy SSL cert lần đầu (HTTP challenge) ───────────────────────────────────
 init_ssl() {
-    info "Lấy SSL cert (standalone mode — Certbot tự mở port 80)..."
-    # Dừng bất kỳ container nào đang chiếm port 80
-    docker stop nginx-tmp 2>/dev/null || true
+    info "Lấy SSL cert (standalone mode)..."
+    cd "$DEPLOY_DIR"
 
-    docker run --rm \
-        -v certbot_certs:/etc/letsencrypt \
+    # Dừng nginx nếu đang chạy để free port 80
+    docker compose stop nginx 2>/dev/null || true
+
+    # Chạy certbot trong compose context → volume đúng tên project (deploy_certbot_certs)
+    docker compose --env-file "$ENV_FILE" run --rm \
         -p 80:80 \
-        certbot/certbot certonly \
+        --entrypoint certbot \
+        certbot certonly \
         --standalone \
         --email "$SSL_EMAIL" --agree-tos --no-eff-email \
         -d "$DOMAIN"
