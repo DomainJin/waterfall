@@ -40,11 +40,15 @@ MQTT_PORT     = int(os.environ.get('MQTT_PORT', 1883))
 MQTT_USER     = os.environ.get('MQTT_USER', '')
 MQTT_PASSWORD = os.environ.get('MQTT_PASSWORD', '')
 
-# MQTT Topics
+# MQTT Topics — Waterfall
 TOPIC_CMD    = 'waterfall/cmd/#'     # subscribe — nhận lệnh từ web client
 TOPIC_STATUS = 'waterfall/status'    # publish   — trạng thái ESP32
 TOPIC_VALVE  = 'waterfall/cmd/valve' # publish   — điều khiển van
 TOPIC_STREAM = 'waterfall/cmd/stream'# publish   — gửi animation frame
+
+# MQTT Topics — Paint Controller
+TOPIC_PAINT_STATUS = 'paint/status'  # subscribe — trạng thái paint device
+TOPIC_PAINT_CMD    = 'paint/cmd'     # publish   — điều khiển paint device
 
 # Setup logging - simple approach (Windows-safe)
 # Use basicConfig's default stream (auto-handles encoding)
@@ -83,6 +87,7 @@ class MQTTRelay:
         self.connected = False
         self._last_status = {}   # cache trạng thái từ ESP32
         self._esp_devices = {}   # {name: {online, ip, last_seen}}
+        self._paint_status = {}  # cache trạng thái paint device
 
     def start(self):
         if not MQTT_AVAILABLE or not MQTT_BROKER:
@@ -107,7 +112,8 @@ class MQTTRelay:
             self.connected = True
             client.subscribe(TOPIC_CMD, qos=1)
             client.subscribe(TOPIC_STATUS, qos=1)
-            logger.info(f"[MQTT] Đã kết nối, subscribe: {TOPIC_CMD}, {TOPIC_STATUS}")
+            client.subscribe(TOPIC_PAINT_STATUS, qos=1)
+            logger.info(f"[MQTT] Đã kết nối, subscribe: waterfall/# + paint/status")
         else:
             logger.error(f"[MQTT] Kết nối thất bại, rc={rc}")
 
@@ -123,7 +129,21 @@ class MQTTRelay:
             logger.info(f"[MQTT] Nhận: {topic} → {payload[:80]}")
             data = json.loads(payload)
 
-            # ESP32 gửi trạng thái online/offline
+            # Paint device gửi trạng thái
+            if topic == TOPIC_PAINT_STATUS:
+                self._paint_status = {
+                    'online':    data.get('online', False),
+                    'btn':       data.get('btn', 0),
+                    'color':     data.get('color', 0),
+                    'level':     data.get('level', 0),
+                    'hex':       data.get('hex', '#000000'),
+                    'name':      data.get('name', 'paint'),
+                    'ip':        data.get('ip', ''),
+                    'last_seen': time.time()
+                }
+                return
+
+            # Waterfall ESP32 gửi trạng thái online/offline
             if topic == TOPIC_STATUS:
                 name = data.get('name', 'esp32')
                 self._esp_devices[name] = {
@@ -157,6 +177,10 @@ class MQTTRelay:
     @property
     def status(self):
         return {'connected': self.connected, 'broker': MQTT_BROKER}
+
+    @property
+    def paint_status(self):
+        return self._paint_status
 
 
 mqtt_relay = MQTTRelay()
@@ -959,6 +983,38 @@ def api_cmd():
 def api_mqtt_status():
     """Trạng thái kết nối MQTT broker"""
     return jsonify(mqtt_relay.status)
+
+
+@app.route('/api/paint/status', methods=['GET'])
+def api_paint_status():
+    """Trạng thái hiện tại của Paint Controller (từ MQTT retained message)."""
+    status = mqtt_relay.paint_status
+    if not status:
+        return jsonify({'online': False, 'message': 'Chưa nhận được dữ liệu từ paint device'})
+    # Đánh dấu offline nếu quá 30s không có tin nhắn
+    last_seen = status.get('last_seen', 0)
+    if last_seen and (time.time() - last_seen) > 30:
+        status = dict(status)
+        status['online'] = False
+    return jsonify(status)
+
+
+@app.route('/api/paint/cmd', methods=['POST'])
+def api_paint_cmd():
+    """Gửi lệnh điều khiển đến Paint device qua MQTT.
+    Body: {"color": 0-19} hoặc {"level": 0-6}
+    """
+    data = request.get_json() or {}
+    if not data:
+        return jsonify({'error': 'Thiếu body JSON'}), 400
+
+    if not mqtt_relay.connected:
+        return jsonify({'error': 'MQTT chưa kết nối', 'connected': False}), 503
+
+    payload = json.dumps(data)
+    mqtt_relay.publish(TOPIC_PAINT_CMD, payload, qos=1)
+    logger.info(f"[PAINT CMD] {payload}")
+    return jsonify({'success': True, 'sent': data})
 
 
 @app.route('/api/mqtt/publish', methods=['POST'])

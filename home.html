@@ -81,6 +81,44 @@
             </div>
         </div>
 
+        <!-- Paint Controller Card -->
+        <div class="card">
+            <div class="card-header" style="background:linear-gradient(135deg,#e74c3c,#9b59b6);display:flex;justify-content:space-between;align-items:center;">
+                <h2 style="margin:0">🎨 PAINT CONTROLLER</h2>
+                <span id="paint-online" style="font-size:12px;font-weight:normal;opacity:.9">⏳ Đang kết nối...</span>
+            </div>
+            <div class="card-content">
+                <!-- Color swatch + hex -->
+                <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px">
+                    <div id="paint-swatch" style="width:64px;height:64px;border-radius:50%;border:3px solid var(--border,#ddd);flex-shrink:0;transition:background .3s;background:#888888"></div>
+                    <div>
+                        <div id="paint-hex" style="font-size:22px;font-weight:700;font-family:monospace">#888888</div>
+                        <div id="paint-color-label" style="font-size:12px;color:#888;margin-top:2px">Color 0 / 19</div>
+                    </div>
+                </div>
+                <!-- Brush level dots -->
+                <div style="margin-bottom:12px">
+                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#666;margin-bottom:6px">Brush Level</div>
+                    <div id="paint-level-dots" style="display:flex;gap:5px;align-items:flex-end;height:28px"></div>
+                </div>
+                <!-- Button state + timestamp -->
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+                    <div id="paint-btn-badge" style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:#ecf0f1;color:#555">— —</div>
+                    <span id="paint-updated" style="font-size:11px;color:#aaa"></span>
+                </div>
+                <!-- Remote color control -->
+                <div style="padding-top:10px;border-top:1px solid var(--border,#ddd)">
+                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;color:#666;margin-bottom:6px">Remote Control</div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <span style="font-size:11px;color:#888;flex-shrink:0">Color</span>
+                        <input type="range" id="paint-rc-color" min="0" max="19" value="0" style="flex:1;accent-color:#9b59b6">
+                        <div id="paint-rc-preview" style="width:24px;height:24px;border-radius:50%;border:2px solid var(--border,#ddd);flex-shrink:0;background:#FF0000"></div>
+                        <button class="btn btn-primary" style="padding:4px 10px;font-size:12px;flex-shrink:0" onclick="sendPaintRemote()">Set</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Quick Connect Card -->
         <div class="card">
             <div class="card-header" style="background-color: #9b59b6;">
@@ -240,6 +278,70 @@
             fetchDevices();
         }
 
+        // ── Paint Controller ───────────────────────────────────────────
+        const PAINT_COLORS = [
+            0xFF0000, 0xFF7F00, 0xFFFF00, 0x7FFF00, 0x00FF00,
+            0x00FF7F, 0x00FFFF, 0x007FFF, 0x0000FF, 0x7F00FF,
+            0xFF00FF, 0xFF007F, 0xFFFFFF, 0xAAAAAA, 0x555555,
+            0xFF5555, 0x55FF55, 0x5555FF, 0xFFFFAA, 0xAAFFFF
+        ];
+
+        function paintHex(c) {
+            return '#' + ('000000' + c.toString(16)).slice(-6).toUpperCase();
+        }
+
+        function renderPaint(data) {
+            const online = data && data.online;
+            document.getElementById('paint-online').textContent = online ? '🟢 Online' : '🔴 Offline';
+
+            if (!online) return;
+
+            const hex = (data.hex || '#888888').toUpperCase();
+            document.getElementById('paint-swatch').style.background = hex;
+            document.getElementById('paint-hex').textContent = hex;
+            document.getElementById('paint-color-label').textContent = `Color ${data.color ?? '?'} / 19`;
+
+            // Level dots — sizes grow left to right to visualise brush size
+            let dotHtml = '';
+            for (let i = 0; i < 7; i++) {
+                const sz = 8 + i * 3;
+                const active = i <= (data.level ?? 0);
+                dotHtml += `<div style="width:${sz}px;height:${sz}px;border-radius:50%;flex-shrink:0;transition:background .25s;background:${active ? hex : '#e0e0e0'}"></div>`;
+            }
+            document.getElementById('paint-level-dots').innerHTML = dotHtml;
+
+            const btn = document.getElementById('paint-btn-badge');
+            if (data.btn) {
+                btn.textContent = '⬇ PRESSED';
+                btn.style.background = '#e74c3c';
+                btn.style.color = '#fff';
+            } else {
+                btn.textContent = '⬆ RELEASED';
+                btn.style.background = '#ecf0f1';
+                btn.style.color = '#555';
+            }
+
+            document.getElementById('paint-updated').textContent = 'Updated: just now';
+        }
+
+        function fetchPaint() {
+            fetch('/api/paint/status')
+                .then(r => r.json())
+                .then(renderPaint)
+                .catch(() => {
+                    document.getElementById('paint-online').textContent = '🔴 Backend offline';
+                });
+        }
+
+        function sendPaintRemote() {
+            const colorIdx = parseInt(document.getElementById('paint-rc-color').value);
+            fetch('/api/paint/cmd', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({color: colorIdx})
+            }).catch(console.error);
+        }
+
         // Init
         window.addEventListener('DOMContentLoaded', () => {
             const savedIp   = localStorage.getItem('selected_esp_ip');
@@ -256,6 +358,15 @@
 
             fetchDevices();
             setInterval(fetchDevices, 5000);
+
+            // Paint slider preview
+            document.getElementById('paint-rc-color').addEventListener('input', function () {
+                const c = PAINT_COLORS[parseInt(this.value)];
+                document.getElementById('paint-rc-preview').style.background = paintHex(c);
+            });
+
+            fetchPaint();
+            setInterval(fetchPaint, 2000);
         });
     </script>
 </body>
