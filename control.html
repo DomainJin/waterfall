@@ -6,20 +6,29 @@
     <title>Control - WATERFALL</title>
     <link rel="stylesheet" href="style.css">
     <style>
-      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap");
+      @import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;600&display=swap");
       :root {
-        --bg: #f0f4f8;
-        --surface: #ffffff;
-        --card: #f8f9fa;
-        --border: #dee2e6;
-        --accent: #0a8bd4;
-        --danger: #e74c3c;
-        --success: #27ae60;
-        --warn: #f39c12;
-        --text: #2c3e50;
-        --muted: #7f8c8d;
-        --mono: "JetBrains Mono", monospace;
-        --sans: "Segoe UI", Arial, sans-serif;
+        /* Anthropic design tokens */
+        --bg:        #faf9f5;   /* canvas */
+        --surface:   #faf9f5;
+        --card:      #efe9de;   /* surface-card */
+        --border:    #e6dfd8;   /* hairline */
+        --accent:    #cc785c;   /* coral primary */
+        --accent-hv: #a9583e;
+        --danger:    #c64545;
+        --success:   #5db872;
+        --warn:      #d4a017;
+        --text:      #141413;   /* ink */
+        --muted:     #6c6a64;
+        --muted-soft:#8e8b82;
+        --dark:      #181715;   /* surface-dark */
+        --dark-el:   #252320;
+        --dark-soft: #1f1e1b;
+        --on-dark:   #faf9f5;
+        --on-dark-s: #a09d96;
+        --mono: 'JetBrains Mono', monospace;
+        --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --serif: 'Cormorant Garamond', Georgia, serif;
       }
       * {
         box-sizing: border-box;
@@ -41,21 +50,21 @@
         display: flex;
         align-items: center;
         gap: 12px;
-        background: var(--surface);
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        background: var(--dark);
       }
       header h1 {
-        font-size: 14px;
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        color: var(--accent);
-        text-transform: uppercase;
+        font-family: var(--serif);
+        font-size: 16px;
+        font-weight: 400;
+        letter-spacing: -0.2px;
+        color: var(--on-dark);
       }
       .dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
         background: var(--danger);
+        flex-shrink: 0;
       }
       .dot.on {
         background: var(--success);
@@ -78,12 +87,13 @@
       }
       .panel-left {
         background: var(--surface);
+        border-right: 1px solid var(--border);
         display: flex;
         flex-direction: column;
         overflow-y: auto;
-        width: 310px;
-        min-width: 180px;
-        max-width: 520px;
+        width: 300px;
+        min-width: 200px;
+        max-width: 480px;
         flex-shrink: 0;
       }
       /* ── Resize handles ───────────────────────────────────── */
@@ -121,6 +131,7 @@
         padding: 14px 16px;
         border-bottom: 1px solid var(--border);
       }
+      /* Collapsible section */
       .sec-title {
         font-size: 9px;
         font-weight: 600;
@@ -128,7 +139,19 @@
         text-transform: uppercase;
         color: var(--muted);
         margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: default;
       }
+      .sec-title.collapsible {
+        cursor: pointer;
+        user-select: none;
+      }
+      .sec-title.collapsible:hover { color: var(--text); }
+      .sec-body.collapsed { display: none; }
+      .sec-chevron { transition: transform .2s; font-size: 10px; }
+      .sec-chevron.open { transform: rotate(180deg); }
       label {
         font-size: 11px;
         color: var(--muted);
@@ -283,6 +306,7 @@
         background: var(--accent);
         color: #fff;
       }
+      .btn-primary:hover:not(:disabled) { background: var(--accent-hv); }
       .btn-danger {
         background: var(--danger);
         color: #fff;
@@ -291,6 +315,13 @@
         background: transparent;
         border: 1px solid var(--border);
         color: var(--text);
+      }
+      .btn-ghost:hover:not(:disabled) { background: var(--card); }
+      /* MQTT-mode: stream unavailable */
+      .mqtt-unavail {
+        opacity: 0.4;
+        cursor: not-allowed;
+        position: relative;
       }
       .btn-sm {
         padding: 6px 12px;
@@ -372,11 +403,25 @@
         font-family: var(--mono);
         font-size: 10px;
         padding: 2px 8px;
-        border-radius: 4px;
+        border-radius: 9999px;
         background: var(--card);
         border: 1px solid var(--border);
         color: var(--muted);
       }
+      .badge-coral { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .badge-teal  { background: #5db8a6; border-color: #5db8a6; color: #fff; }
+      /* Mode notice bar (MQTT only) */
+      .mode-notice {
+        background: #faf5f0;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 7px 10px;
+        font-size: 10px;
+        color: var(--muted);
+        margin-bottom: 8px;
+        line-height: 1.5;
+      }
+      .mode-notice strong { color: var(--accent); }
       #pixel-canvas {
         image-rendering: pixelated;
         border: 1px solid var(--border);
@@ -443,11 +488,12 @@
     </nav>
 
     <!-- Connection Status Bar -->
-    <div style="background: #ffffff; padding: 10px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #dee2e6; box-shadow: 0 1px 3px rgba(0,0,0,0.06); flex-shrink: 0;">
-      <div id="conn-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #e74c3c;"></div>
-      <span style="font-size: 13px; font-weight: 600; color: #0a8bd4; letter-spacing: 0.05em;">WATER CURTAIN</span>
-      <span id="mode-badge" style="font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; background: #eee; color: #888; display: none;">—</span>
-      <span id="conn-label" style="font-size: 11px; color: #7f8c8d; margin-left: auto;">Disconnected</span>
+    <div style="background:var(--dark);padding:8px 20px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;">
+      <div id="conn-dot" class="dot"></div>
+      <span style="font-family:var(--serif);font-size:15px;font-weight:400;color:var(--on-dark);letter-spacing:-0.2px;">Water Curtain</span>
+      <span id="mode-badge" class="badge" style="display:none;">—</span>
+      <span id="conn-label" style="font-size:11px;color:var(--on-dark-s);margin-left:auto;">Disconnected</span>
+      <a href="home.html" style="font-size:11px;color:var(--on-dark-s);text-decoration:none;opacity:.6;">← Home</a>
     </div>
 
     <!-- Main Control Layout -->
@@ -485,168 +531,29 @@
         </div>
 
         <div class="sec">
-          <div class="sec-title">Scan ESP</div>
-          <label>Scan IP Range (192.168.1.x)</label>
-          <div style="display: flex; gap: 6px; align-items: center">
-            <input
-              type="number"
-              id="scan-ip-from"
-              value="1"
-              min="1"
-              max="254"
-              style="flex: 1"
-              placeholder="From"
-            />
-            <span style="color: var(--muted)">—</span>
-            <input
-              type="number"
-              id="scan-ip-to"
-              value="254"
-              min="1"
-              max="254"
-              style="flex: 1"
-              placeholder="To"
-            />
+          <div class="sec-title collapsible" onclick="toggleSec('scan-body','scan-chev')">
+            <span>Scan Network</span>
+            <span class="sec-chevron" id="scan-chev">▾</span>
           </div>
-          <div style="margin-top: 8px; display: flex; gap: 6px">
-            <button
-              class="btn btn-primary btn-sm"
-              onclick="scanESPNetwork()"
-              style="flex: 1"
-            >
-              🔍 Scan Network
-            </button>
-            <button
-              class="btn btn-ghost btn-sm"
-              onclick="scanBLENetwork()"
-              style="flex: 1"
-            >
-              📡 Scan BLE
-            </button>
-          </div>
-          <div
-            id="scan-results"
-            style="
-              margin-top: 8px;
-              font-size: 10px;
-              background: var(--card);
-              border: 1px solid var(--border);
-              border-radius: 5px;
-              padding: 8px;
-              display: none;
-              max-height: 120px;
-              overflow-y: auto;
-            "
-          ></div>
-          <label style="margin-top: 8px; display: block">Found Devices</label>
-          <select
-            id="scan-devices"
-            style="
-              width: 100%;
-              padding: 7px 9px;
-              background: var(--card);
-              border: 1px solid var(--border);
-              color: var(--text);
-              border-radius: 5px;
-              font-size: 11px;
-            "
-            onchange="selectScannedESP(this.value)"
-          >
-            <option value="">— No devices found —</option>
-          </select>
-        </div>
-
-        <div class="sec">
-          <div class="sec-title">⚙️ Config Device (UDP 8888)</div>
-
-          <!-- Device selection from scanned devices -->
-          <label style="display: block; margin-bottom: 8px"
-            >Select Device</label
-          >
-          <div style="display: flex; gap: 6px; margin-bottom: 8px">
-            <select
-              id="config-device-select"
-              style="
-                flex: 1;
-                padding: 7px 9px;
-                background: var(--card);
-                border: 1px solid var(--border);
-                color: var(--text);
-                border-radius: 5px;
-                font-size: 11px;
-              "
-              onchange="selectConfigDevice(this.value)"
-            >
-              <option value="">— Select device (or enter IP) —</option>
+          <div class="sec-body collapsed" id="scan-body">
+            <label>IP Range (192.168.1.x)</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="number" id="scan-ip-from" value="1" min="1" max="254" style="flex:1" placeholder="From"/>
+              <span style="color:var(--muted);font-size:11px">—</span>
+              <input type="number" id="scan-ip-to" value="254" min="1" max="254" style="flex:1" placeholder="To"/>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:6px">
+              <button class="btn btn-primary btn-sm" onclick="scanESPNetwork()" style="flex:1">🔍 Scan</button>
+              <button class="btn btn-ghost btn-sm" onclick="scanBLENetwork()" style="flex:1">📡 BLE</button>
+            </div>
+            <div id="scan-results" style="margin-top:8px;font-size:10px;background:var(--card);border:1px solid var(--border);border-radius:5px;padding:8px;display:none;max-height:100px;overflow-y:auto;"></div>
+            <select id="scan-devices" style="width:100%;margin-top:8px;padding:7px 9px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:5px;font-size:11px;" onchange="selectScannedESP(this.value)">
+              <option value="">— No devices found —</option>
             </select>
           </div>
-
-          <!-- Manual IP entry -->
-          <label style="display: block; margin-bottom: 4px"
-            >or IP Address</label
-          >
-          <input
-            type="text"
-            id="config-device-ip"
-            placeholder="192.168.1.241"
-            style="
-              width: 100%;
-              padding: 7px 9px;
-              background: var(--card);
-              border: 1px solid var(--border);
-              color: var(--text);
-              border-radius: 5px;
-              font-size: 11px;
-              box-sizing: border-box;
-              margin-bottom: 8px;
-            "
-          />
-
-          <!-- Get Info button -->
-          <button
-            class="btn btn-primary btn-sm"
-            onclick="configGetInfo()"
-            style="width: 100%; margin-bottom: 8px"
-          >
-            🔄 Get Device Info
-          </button>
-
-          <!-- Device info display -->
-          <div
-            id="config-info"
-            style="
-              background: var(--card);
-              border: 1px solid var(--border);
-              border-radius: 5px;
-              padding: 8px;
-              font-size: 10px;
-              font-family: &quot;Courier New&quot;, monospace;
-              color: var(--muted);
-              margin-bottom: 8px;
-              max-height: 80px;
-              overflow-y: auto;
-              display: none;
-            "
-          ></div>
-
-          <!-- Configuration controls -->
-          <div
-            style="
-              margin-top: 12px;
-              padding-top: 12px;
-              border-top: 1px solid var(--border);
-            "
-          ></div>
-
-          <!-- Reset button -->
-          <button
-            class="btn btn-ghost btn-sm"
-            onclick="configReset()"
-            style="width: 100%; margin-top: 12px"
-          >
-            ⚠️ Reset Device
-          </button>
         </div>
+
+        <!-- Config Device removed — use the Config tab for device config -->
 
         <div class="sec">
           <div class="sec-title">Image Source</div>
@@ -662,7 +569,11 @@
           <img id="thumb-preview" />
         </div>
         <div class="sec">
-          <div class="sec-title">Background Removal</div>
+          <div class="sec-title collapsible" onclick="toggleSec('bg-body','bg-chev')">
+            <span>Image Processing</span>
+            <span class="sec-chevron open" id="bg-chev">▾</span>
+          </div>
+          <div class="sec-body" id="bg-body">
           <div class="seg-row">
             <label>Remove dark background</label>
             <label class="tw on" id="tw-rmbg"
@@ -748,14 +659,11 @@
               oninput="onDil()"
             />
           </div>
-          <div style="margin-top: 8px; display: flex; gap: 6px">
-            <button class="btn btn-ghost btn-sm" onclick="reprocess()">
-              ↺ Reprocess
-            </button>
-            <button class="btn btn-ghost btn-sm" onclick="autoThreshold()">
-              Auto
-            </button>
+          <div style="margin-top:8px;display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="reprocess()">↺ Reprocess</button>
+            <button class="btn btn-ghost btn-sm" onclick="autoThreshold()">Auto</button>
           </div>
+          </div><!-- /sec-body bg -->
         </div>
         <div class="sec">
           <div class="sec-title">Physics & Timing</div>
@@ -853,7 +761,11 @@
         </div>
 
         <div class="sec">
-          <div class="sec-title">Test Mode</div>
+          <div class="sec-title collapsible" onclick="toggleSec('test-body','test-chev')">
+            <span>Test Mode</span>
+            <span class="sec-chevron" id="test-chev">▾</span>
+          </div>
+          <div class="sec-body collapsed" id="test-body">
           <label>Test Bits Range</label>
           <div style="display: flex; gap: 6px; align-items: center">
             <input
@@ -916,10 +828,11 @@
               </button>
             </div>
           </div>
+          </div><!-- /sec-body test -->
         </div>
 
         <div class="sec">
-          <div class="sec-title">Test Patterns</div>
+          <div class="sec-title">Patterns</div>
           <label>Pattern Type</label>
           <select
             id="pattern-type"
@@ -953,53 +866,35 @@
             oninput="updatePatternPreview()"
           />
           <div class="val-label" id="pattern-density-val">50%</div>
-          <div style="margin-top: 8px; display: flex; gap: 6px">
-            <button
-              class="btn btn-primary btn-sm"
-              onclick="generateAndSendPattern()"
-              style="flex: 1"
-            >
-              ▶ Send Pattern
-            </button>
-            <button
-              class="btn btn-ghost btn-sm"
-              onclick="simulatePatternOnly()"
-              style="flex: 1"
-            >
-              Simulate
-            </button>
+          <div style="margin-top:8px;display:flex;gap:6px">
+            <button class="btn btn-primary btn-sm" id="btn-send-pattern" onclick="generateAndSendPattern()" style="flex:1">▶ Send Pattern</button>
+            <button class="btn btn-ghost btn-sm" onclick="simulatePatternOnly()" style="flex:1">Simulate</button>
+          </div>
+          <!-- MQTT notice (shown when in MQTT mode) -->
+          <div class="mode-notice" id="mqtt-stream-notice" style="display:none;margin-top:8px;">
+            <strong>MQTT mode</strong> — Pattern streaming cần kết nối LAN trực tiếp.<br>
+            Mở trang qua <code>http://&lt;IP&gt;</code> hoặc file:// để dùng.
           </div>
         </div>
 
         <div class="sec">
-          <button
-            class="btn btn-primary"
-            id="btn-send"
-            onclick="startStream()"
-            disabled
-          >
-            ▶ Send to ESP32
-          </button>
-          <div style="margin-top: 6px"></div>
-          <button
-            class="btn btn-ghost"
-            id="btn-sim"
-            onclick="startSimOnly()"
-            disabled
-          >
-            Simulate only
-          </button>
-          <div style="margin-top: 6px"></div>
-          <button class="btn btn-danger btn-sm" onclick="stopAll()">
-            ■ Stop / All off
-          </button>
-          <div class="progress-bar">
-            <div class="progress-fill" id="progress"></div>
+          <!-- MQTT mode: show notice, hide send button -->
+          <div id="lan-send-area">
+            <button class="btn btn-primary" id="btn-send" onclick="startStream()" disabled>▶ Send to ESP32</button>
+            <div style="margin-top:6px"></div>
           </div>
+          <button class="btn btn-ghost" id="btn-sim" onclick="startSimOnly()" disabled>⬛ Simulate only</button>
+          <div style="margin-top:6px"></div>
+          <button class="btn btn-danger btn-sm" onclick="stopAll()">■ Stop / All off</button>
+          <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
         </div>
 
         <div class="sec">
-          <div class="sec-title">💾 Data Management</div>
+          <div class="sec-title collapsible" onclick="toggleSec('data-body','data-chev')">
+            <span>Data Management</span>
+            <span class="sec-chevron" id="data-chev">▾</span>
+          </div>
+          <div class="sec-body collapsed" id="data-body">
 
           <!-- Storage Status -->
           <div
@@ -1165,17 +1060,12 @@
             >
               <option value="">— Select file to delete —</option>
             </select>
-            <button
-              class="btn btn-danger btn-sm"
-              onclick="deleteSelectedFile()"
-              style="width: 100%"
-            >
-              🗑 Delete File
-            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteSelectedFile()" style="width:100%">🗑 Delete File</button>
           </div>
+          </div><!-- /sec-body data -->
         </div>
 
-        <div class="sec" style="flex: 1">
+        <div class="sec" style="flex:1">
           <div class="sec-title">Log</div>
           <div id="log"></div>
         </div>
@@ -1328,14 +1218,26 @@
 
       // ── Dual-path helpers ─────────────────────────────────────
 
+      // Collapsible section toggle
+      function toggleSec(bodyId, chevId) {
+        const body = document.getElementById(bodyId);
+        const chev = document.getElementById(chevId);
+        if (!body) return;
+        const collapsed = body.classList.toggle('collapsed');
+        if (chev) chev.classList.toggle('open', !collapsed);
+      }
+
       function _setMode(mode, label) {
         connMode = mode;
         const badge = document.getElementById("mode-badge");
-        badge.style.display = "inline";
         if (mode === 'lan') {
-          badge.textContent = "LAN"; badge.style.background = "#d4edda"; badge.style.color = "#155724";
+          badge.style.display = "inline";
+          badge.className = 'badge badge-teal';
+          badge.textContent = "LAN";
         } else if (mode === 'mqtt') {
-          badge.textContent = "MQTT"; badge.style.background = "#cce5ff"; badge.style.color = "#004085";
+          badge.style.display = "inline";
+          badge.className = 'badge badge-coral';
+          badge.textContent = "MQTT";
         } else {
           badge.style.display = "none";
         }
@@ -1363,20 +1265,42 @@
         }
       }
 
-      // Populate MQTT device picker from /api/devices
+      // Populate MQTT device picker — preserve current selection
       async function loadMqttDevices() {
         try {
           const res = await fetch('/api/devices');
           const data = await res.json();
           const sel = document.getElementById("mqtt-device-select");
+          const prev = sel.value;                          // remember selection
           sel.innerHTML = '<option value="">-- Chọn thiết bị --</option>';
-          (data.devices || []).filter(d => d.online).forEach(d => {
+          const online = (data.devices || []).filter(d => d.online);
+          online.forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.name;
             opt.textContent = `${d.name} (${d.ip})`;
             sel.appendChild(opt);
           });
+          if (prev) sel.value = prev;                      // restore selection
+          // Also try to pre-select by saved IP
+          if (!sel.value) {
+            const savedIp = localStorage.getItem('selected_esp_ip');
+            if (savedIp) {
+              for (const opt of sel.options) {
+                if (opt.textContent.includes(savedIp)) { sel.value = opt.value; break; }
+              }
+            }
+          }
         } catch(e) { /* ignore */ }
+      }
+
+      function _applyMqttUI(on) {
+        // Show/hide MQTT streaming notice and disable streaming buttons
+        const notice = document.getElementById('mqtt-stream-notice');
+        const btnPat = document.getElementById('btn-send-pattern');
+        const lanArea = document.getElementById('lan-send-area');
+        if (notice)  notice.style.display  = on ? 'block' : 'none';
+        if (btnPat)  btnPat.disabled = on;
+        if (lanArea) lanArea.style.display = on ? 'none' : 'block';
       }
 
       function connectESP() {
@@ -1389,11 +1313,13 @@
           connMode = 'mqtt';
           connected = true;
           _setMode('mqtt', `MQTT → ${chosen}`);
-          document.getElementById("conn-dot").style.background = "#0a8bd4";
-          document.getElementById("btn-send").disabled = true;  // stream unavailable
+          document.getElementById("conn-dot").className = 'dot on';
+          document.getElementById("conn-dot").style.background = '#5db8a6';
+          document.getElementById("btn-send").disabled = true;
           document.getElementById("btn-sim").disabled = false;
-          log(`Kết nối qua MQTT → ${chosen}`, "log-ok");
-          log("Streaming không khả dụng qua internet (dùng LAN cho animation)", "log-warn");
+          _applyMqttUI(true);
+          log(`Kết nối MQTT → ${chosen}`, "log-ok");
+          log("Streaming animation cần LAN (http:// / file://) — chỉ điều khiển van qua MQTT", "log-warn");
           return;
         }
 
