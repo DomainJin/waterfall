@@ -872,8 +872,8 @@
           </div>
           <!-- MQTT notice (shown when in MQTT mode) -->
           <div class="mode-notice" id="mqtt-stream-notice" style="display:none;margin-top:8px;">
-            <strong>MQTT mode</strong> — Pattern streaming cần kết nối LAN trực tiếp.<br>
-            Mở trang qua <code>http://&lt;IP&gt;</code> hoặc file:// để dùng.
+            <strong>MQTT mode</strong> — Gửi từng frame qua SET command (~500ms/frame).<br>
+            Dùng LAN (<code>http://</code>) để stream animation tốc độ cao.
           </div>
         </div>
 
@@ -1294,13 +1294,16 @@
       }
 
       function _applyMqttUI(on) {
-        // Show/hide MQTT streaming notice and disable streaming buttons
-        const notice = document.getElementById('mqtt-stream-notice');
-        const btnPat = document.getElementById('btn-send-pattern');
+        const notice  = document.getElementById('mqtt-stream-notice');
         const lanArea = document.getElementById('lan-send-area');
+        const btnPat  = document.getElementById('btn-send-pattern');
         if (notice)  notice.style.display  = on ? 'block' : 'none';
-        if (btnPat)  btnPat.disabled = on;
         if (lanArea) lanArea.style.display = on ? 'none' : 'block';
+        // Pattern can still work via MQTT (slow frame-by-frame SET commands)
+        if (btnPat) {
+          btnPat.disabled = false;
+          btnPat.textContent = on ? '▶ Send Pattern (MQTT)' : '▶ Send Pattern';
+        }
       }
 
       function connectESP() {
@@ -1876,38 +1879,62 @@
         );
       }
 
+      // Send pattern via MQTT: one SET command per frame, with delay between
+      async function _sendPatternMQTT(patternFrames) {
+        const btn = document.getElementById('btn-send-pattern');
+        if (btn) btn.disabled = true;
+        log(`MQTT: gửi ${patternFrames.length} frames (SET command mỗi ~500ms)...`, "log-warn");
+        await sendCommand('ALL_OFF').catch(() => {});
+        for (let i = 0; i < patternFrames.length; i++) {
+          if (!connected) break;
+          const f = patternFrames[i];
+          const hexBits = Array.from(f.bits instanceof Uint8Array ? f.bits : new Uint8Array(f.bits))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+          try {
+            await sendCommand('SET', { bits: hexBits });
+          } catch(e) {
+            log(`Frame ${i+1} lỗi: ${e.message}`, "log-err");
+          }
+          const pct = Math.round((i + 1) / patternFrames.length * 100);
+          document.getElementById('progress').style.width = pct + '%';
+          log(`Frame ${i+1}/${patternFrames.length}`, "log-info");
+          await new Promise(r => setTimeout(r, 500));
+        }
+        await sendCommand('ALL_OFF').catch(() => {});
+        document.getElementById('progress').style.width = '0%';
+        if (btn) btn.disabled = false;
+        log("MQTT pattern done", "log-ok");
+      }
+
       function generateAndSendPattern() {
-        if (!connected) { log("Not connected", "log-warn"); return; }
-        if (connMode === 'mqtt') { log("Pattern streaming cần kết nối LAN trực tiếp", "log-err"); return; }
+        if (!connected) { log("Not connected — kết nối thiết bị trước", "log-warn"); return; }
 
-        const type = document.getElementById("pattern-type").value;
-        const density =
-          parseInt(document.getElementById("pattern-density").value) / 100;
-
-        // Generate full pattern (16 rows for test)
+        const type    = document.getElementById("pattern-type").value;
+        const density = parseInt(document.getElementById("pattern-density").value) / 100;
         const patternRows = generatePattern(type, 16, VALVES, density);
 
         frames = [];
-        const adv = 80; // Default interval
-        patternRows.forEach((patternRow, rowIdx) => {
-          const ts = rowIdx * adv;
-          frames.push({ ts_ms: ts, bits: patternRow });
-        });
-        frames.push({
-          ts_ms: frames.length * adv,
-          bits: new Uint8Array(CHIPS),
-        });
+        const adv = 80;
+        patternRows.forEach((row, idx) => frames.push({ ts_ms: idx * adv, bits: row }));
+        frames.push({ ts_ms: frames.length * adv, bits: new Uint8Array(CHIPS) });
 
-        log(`Generated ${type} pattern: ${frames.length} frames`, "log-ok");
+        log(`Pattern: ${type} — ${frames.length} frames`, "log-ok");
         updateAnimationInfo();
 
-        // Send pattern
+        // ── MQTT mode: gửi từng frame qua SET command ─────────────
+        if (connMode === 'mqtt') {
+          _sendPatternMQTT(frames);
+          simulatePatternOnly();   // run local sim in parallel
+          return;
+        }
+
+        // ── LAN mode: binary WebSocket stream ─────────────────────
         stopAll();
         sendReset();
         setTimeout(() => {
           sendStart();
-          frames.forEach((f) => sendRaw(mkFrame(f.ts_ms, f.bits)));
-          log(`Sent ${frames.length} frames`, "log-ok");
+          frames.forEach(f => sendRaw(mkFrame(f.ts_ms, f.bits)));
+          log(`Sent ${frames.length} frames (LAN)`, "log-ok");
           startSimulation();
         }, 80);
       }
