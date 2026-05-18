@@ -469,42 +469,112 @@
       ws = new WebSocket(`ws://${espIp}:3333`);
       ws.binaryType = 'arraybuffer';
       ws.onopen = () => {
-        // RESET frame
+        // RESET
         const reset = new ArrayBuffer(14);
         new DataView(reset).setUint32(0, 0xffffffff, true);
         ws.send(reset);
+
         setTimeout(() => {
-          // START frame
+          // START
           const start = new ArrayBuffer(14);
           new DataView(start).setUint32(0, 0xfffffffe, true);
           ws.send(start);
+
           // Stream all frames
           for (let i = 0; i < totalFrames; i++) {
             ws.send(buffer.slice(i * 14, (i + 1) * 14));
           }
-          ws.close();
-          ws = null;
-          setTimeout(() => { playingName = null; renderEffects(); }, 500);
+
+          // ⚠ KHÔNG đóng WS ngay — ESP32 cần streaming() = true để scheduler xử lý frames
+          // Đợi animation hoàn tất rồi mới đóng
+          const lastTs = totalFrames > 0
+            ? new DataView(buffer).getUint32((totalFrames - 1) * 14, true)
+            : 0;
+          // lastTs + tfall ước tính (~600ms) + buffer 2s
+          const waitMs = Math.max(lastTs + 2600, 3000);
+          setTimeout(() => {
+            if (ws) { ws.close(); ws = null; }
+            playingName = null;
+            renderEffects();
+          }, waitMs);
         }, 80);
       };
       ws.onerror = () => {
         playingName = null; ws = null; renderEffects();
-        alert('Không kết nối WebSocket. Dùng LAN (http://)');
+        alert('Không kết nối WebSocket — mở trang qua http:// (LAN)');
+      };
+      ws.onclose = (e) => {
+        // Bị đóng từ bên ngoài (stop button)
+        if (playingName === name) { playingName = null; renderEffects(); }
       };
     }
 
+    // ── Phát effect qua MQTT (frame-by-frame SET command) ────────────
+    // Hỗ trợ cả 2 định dạng: binary .bin và JSON backup từ control.html
     async function _playViaMQTT(buffer, totalFrames, name) {
+      // Kiểm tra định dạng file
+      const firstByte = new Uint8Array(buffer, 0, 1)[0];
+
+      if (firstByte === 0x7B) {  // '{' → JSON format (từ control.html Export/Backup)
+        await _playJsonViaMQTT(buffer, name);
+        return;
+      }
+
+      // Binary .bin format: 14 bytes/frame [ts_u32le][bits×10]
       for (let i = 0; i < totalFrames && playingName === name; i++) {
-        const slice = new Uint8Array(buffer, i * 14, 14);
-        const bitsHex = Array.from(slice.slice(4, 14)).map(b => b.toString(16).padStart(2,'0')).join('');
+        const slice   = new Uint8Array(buffer, i * 14, 14);
+        const bitsHex = Array.from(slice.slice(4, 14))
+                          .map(b => b.toString(16).padStart(2,'0')).join('');
+        // Bỏ qua frame toàn zero (không có van nào mở)
+        if (bitsHex === '0'.repeat(20)) { await new Promise(r => setTimeout(r, 80)); continue; }
         await fetch('/api/cmd', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cmd: 'SET', bits: bitsHex })
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({cmd:'SET', bits: bitsHex})
         }).catch(() => {});
         await new Promise(r => setTimeout(r, 500));
       }
-      await fetch('/api/cmd', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({cmd:'ALL_OFF'}) }).catch(()=>{});
+      await fetch('/api/cmd', {method:'POST', headers:{'Content-Type':'application/json'},
+                               body: JSON.stringify({cmd:'ALL_OFF'})}).catch(() => {});
+      playingName = null;
+      renderEffects();
+    }
+
+    // Phát file JSON (control.html downloadCurrentAnimation hoặc backupAnimation)
+    async function _playJsonViaMQTT(buffer, name) {
+      let data;
+      try {
+        data = JSON.parse(new TextDecoder().decode(buffer));
+      } catch(e) {
+        alert('Lỗi parse JSON: ' + e.message);
+        playingName = null; renderEffects(); return;
+      }
+
+      const frameList = data.frames || [];
+      if (!frameList.length) {
+        alert('File JSON không có frames');
+        playingName = null; renderEffects(); return;
+      }
+
+      for (let i = 0; i < frameList.length && playingName === name; i++) {
+        const f    = frameList[i];
+        const bits = f.bits;  // Uint8Array-like array hoặc Array
+        if (!bits || !bits.length) continue;
+
+        // Convert array of numbers → hex string (20 chars for 10 boards)
+        const bitsHex = Array.from(bits).map(b => (b & 0xFF).toString(16).padStart(2,'0')).join('');
+        if (bitsHex === '0'.repeat(bitsHex.length)) {
+          await new Promise(r => setTimeout(r, 80)); continue;
+        }
+        await fetch('/api/cmd', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({cmd:'SET', bits: bitsHex})
+        }).catch(() => {});
+        await new Promise(r => setTimeout(r, 500));
+      }
+      await fetch('/api/cmd', {method:'POST', headers:{'Content-Type':'application/json'},
+                               body: JSON.stringify({cmd:'ALL_OFF'})}).catch(() => {});
       playingName = null;
       renderEffects();
     }

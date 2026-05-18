@@ -984,7 +984,15 @@
               onclick="downloadCurrentAnimation()"
               style="flex: 1"
             >
-              ⬇ Export
+              ⬇ JSON
+            </button>
+            <button
+              class="btn btn-primary btn-sm"
+              onclick="exportBinaryEffect()"
+              style="flex: 1"
+              title="Export binary .bin — upload lên SD Card page để phát"
+            >
+              ⬇ .bin
             </button>
           </div>
 
@@ -2373,6 +2381,28 @@
         } catch (e) {
           log("Storage info: " + e.message, "log-warn");
         }
+      }
+
+      // Export raw binary .bin — 14 bytes per frame [ts_u32le][bits×NUM_BOARDS]
+      // Đây là format đúng để upload lên SD Card page và phát lại
+      function exportBinaryEffect() {
+        if (!frames.length) { log('No animation — load image first', 'log-warn'); return; }
+        const buf   = new ArrayBuffer(frames.length * 14);
+        const view  = new DataView(buf);
+        const bytes = new Uint8Array(buf);
+        frames.forEach((f, i) => {
+          const offset = i * 14;
+          view.setUint32(offset, f.ts_ms >>> 0, true);   // timestamp LE
+          const bits = f.bits instanceof Uint8Array ? f.bits : new Uint8Array(f.bits);
+          bytes.set(bits.subarray(0, 10), offset + 4);   // 10 bytes valve bits
+        });
+        const blob = new Blob([buf], { type: 'application/octet-stream' });
+        const url  = URL.createObjectURL(blob);
+        const a    = Object.assign(document.createElement('a'),
+                       { href: url, download: `effect_${Date.now()}.bin` });
+        a.click();
+        URL.revokeObjectURL(url);
+        log(`Exported ${frames.length} frames → effect.bin`, 'log-ok');
       }
 
       async function downloadCurrentAnimation() {
