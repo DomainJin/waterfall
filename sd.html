@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SD Card - WATERFALL</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Tab system */
+    .tab-bar {
+      display: flex;
+      border: 1px solid var(--hairline);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      margin-bottom: var(--sp-lg);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 11px 16px;
+      border: none;
+      border-right: 1px solid var(--hairline);
+      background: var(--canvas);
+      color: var(--muted);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    .tab-btn:last-child { border-right: none; }
+    .tab-btn.active  { background: var(--surface-card); color: var(--primary); }
+    .tab-btn:hover:not(.active) { background: var(--surface-soft); color: var(--body); }
+
+    /* Dropzone */
+    .dropzone {
+      border: 2px dashed var(--hairline);
+      border-radius: var(--r-lg);
+      padding: 28px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .dropzone.drag, .dropzone:hover { border-color: var(--primary); background: rgba(204,120,92,.04); }
+
+    /* Effect card */
+    .effect-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 12px;
+    }
+    .effect-card {
+      border: 1px solid var(--hairline);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      background: var(--canvas);
+      transition: box-shadow .2s;
+    }
+    .effect-card:hover { box-shadow: 0 2px 12px rgba(20,20,19,.07); }
+    .effect-card-hdr {
+      background: var(--surface-dark);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .effect-card-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--on-dark);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .effect-card-body {
+      padding: 10px 14px;
+    }
+    .effect-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 3px;
+    }
+    .effect-meta b { color: var(--body); }
+
+    /* Sound row */
+    .sound-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border: 1px solid var(--hairline);
+      border-radius: var(--r-md);
+      margin-bottom: 8px;
+      background: var(--canvas);
+      transition: box-shadow .15s;
+    }
+    .sound-row:hover { box-shadow: 0 1px 6px rgba(20,20,19,.06); }
+    .sound-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--r-md);
+      background: var(--surface-card);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    /* File tree (dark) */
+    .file-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 5px 8px;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .file-row:hover { background: rgba(255,255,255,0.06); }
+    .file-row-name { flex: 1; color: var(--on-dark); font-size: 12px; }
+    .file-row-size  { color: var(--on-dark-soft); font-size: 11px; }
+
+    /* Waveform visual (fake) */
+    .waveform {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .waveform-bar {
+      width: 3px;
+      border-radius: 2px;
+      background: var(--accent-teal, #5db8a6);
+      opacity: .6;
+    }
+
+    /* Playing indicator */
+    .playing-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      animation: pulse 1s infinite;
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="navbar">
+    <ul>
+      <li><a href="home.html">🏠 Home</a></li>
+      <li><a href="control.html">🎛️ Control</a></li>
+      <li><a href="monitor.html">📊 Monitor</a></li>
+      <li><a href="config.html">⚙️ Config</a></li>
+      <li><a href="sd.html" class="active">💾 SD Card</a></li>
+    </ul>
+  </nav>
+
+  <div class="content">
+
+    <!-- Device banner -->
+    <div class="device-info-banner" id="device-banner">
+      <p class="device-info-display" id="device-display">⚠️ Chưa chọn thiết bị</p>
+      <div style="display:flex;gap:8px;flex-shrink:0">
+        <span id="conn-mode-badge" style="display:none;font-size:11px;padding:3px 8px;border-radius:9999px;background:rgba(255,255,255,0.15);color:#fff"></span>
+        <button class="btn" style="width:auto;margin:0;padding:5px 14px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);font-size:12px" onclick="refreshAll()">↺ Refresh</button>
+      </div>
+    </div>
+
+    <!-- Storage Status -->
+    <div class="card">
+      <div class="card-header">
+        <h2>💾 STORAGE</h2>
+        <span class="header-meta" id="storage-pct">—</span>
+      </div>
+      <div class="card-content">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+          <div class="status-panel" style="margin:0">
+            <h3>Total</h3>
+            <p id="sd-total" style="font-size:17px;font-weight:500;color:var(--ink)">—</p>
+          </div>
+          <div class="status-panel" style="margin:0">
+            <h3>Used</h3>
+            <p id="sd-used" style="font-size:17px;font-weight:500;color:var(--primary)">—</p>
+          </div>
+          <div class="status-panel" style="margin:0">
+            <h3>Free</h3>
+            <p id="sd-free" style="font-size:17px;font-weight:500;color:var(--success)">—</p>
+          </div>
+        </div>
+        <div class="progress-bar" style="height:6px">
+          <div class="progress-fill" id="sd-bar" style="width:0%"></div>
+        </div>
+        <div id="sd-status" style="font-size:11px;color:var(--muted-soft);margin-top:6px">Đang tải...</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-btn-effects" onclick="switchTab('effects')">🎬 Effects</button>
+      <button class="tab-btn" id="tab-btn-sounds" onclick="switchTab('sounds')">🔊 Sounds</button>
+      <button class="tab-btn" id="tab-btn-files" onclick="switchTab('files')">📂 Files</button>
+    </div>
+
+    <!-- ═══════ EFFECTS TAB ═══════ -->
+    <div id="tab-effects">
+
+      <!-- Upload -->
+      <div class="card card-cream">
+        <div class="card-header">
+          <h3>⬆ Upload Effect</h3>
+          <span class="header-meta">.bin format · 14 bytes/frame</span>
+        </div>
+        <div class="card-content">
+          <div class="dropzone" id="dz-effects"
+            ondragover="dzOver(event,'effects')" ondragleave="dzLeave('effects')" ondrop="dzDrop(event,'effects')"
+            onclick="document.getElementById('fi-effects').click()">
+            <input type="file" id="fi-effects" accept=".bin,.json" multiple style="display:none" onchange="doUpload(this.files,'effects')">
+            <div style="font-size:28px;margin-bottom:6px">🎬</div>
+            <p style="font-size:13px;color:var(--body)">Drop <b>.bin</b> effect files here</p>
+            <p style="font-size:11px;color:var(--muted-soft);margin-top:4px">14-byte frames — 4B timestamp + 10B valve bits</p>
+          </div>
+          <div id="up-prog-effects" style="display:none;margin-top:10px">
+            <div class="progress-bar"><div class="progress-fill" id="up-fill-effects" style="width:0%"></div></div>
+            <p id="up-label-effects" style="font-size:11px;color:var(--muted);margin-top:5px"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Library -->
+      <div class="card">
+        <div class="card-header">
+          <h2 id="effects-title">🎬 EFFECTS LIBRARY</h2>
+          <span class="header-meta" id="effects-meta"></span>
+        </div>
+        <div class="card-content">
+          <div class="effect-grid" id="effects-grid">
+            <div class="empty-state" style="grid-column:1/-1">⏳ Đang tải...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ SOUNDS TAB ═══════ -->
+    <div id="tab-sounds" style="display:none">
+
+      <!-- Upload -->
+      <div class="card card-cream">
+        <div class="card-header">
+          <h3>⬆ Upload Sound</h3>
+          <span class="header-meta">.mp3 · .wav · .ogg</span>
+        </div>
+        <div class="card-content">
+          <div class="dropzone" id="dz-sounds"
+            ondragover="dzOver(event,'sounds')" ondragleave="dzLeave('sounds')" ondrop="dzDrop(event,'sounds')"
+            onclick="document.getElementById('fi-sounds').click()">
+            <input type="file" id="fi-sounds" accept=".mp3,.wav,.ogg" multiple style="display:none" onchange="doUpload(this.files,'sounds')">
+            <div style="font-size:28px;margin-bottom:6px">🔊</div>
+            <p style="font-size:13px;color:var(--body)">Drop audio files here</p>
+            <p style="font-size:11px;color:var(--muted-soft);margin-top:4px">Formats: .mp3, .wav, .ogg</p>
+          </div>
+          <div id="up-prog-sounds" style="display:none;margin-top:10px">
+            <div class="progress-bar"><div class="progress-fill" id="up-fill-sounds" style="width:0%"></div></div>
+            <p id="up-label-sounds" style="font-size:11px;color:var(--muted);margin-top:5px"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Library -->
+      <div class="card">
+        <div class="card-header">
+          <h2 id="sounds-title">🔊 SOUNDS LIBRARY</h2>
+          <span class="header-meta" id="sounds-meta"></span>
+        </div>
+        <div class="card-content">
+          <div id="sounds-list">
+            <div class="empty-state">⏳ Đang tải...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ FILES TAB ═══════ -->
+    <div id="tab-files" style="display:none">
+      <div class="card card-dark">
+        <div class="card-header">
+          <h2 style="font-family:var(--font-mono);font-size:13px;font-weight:400;letter-spacing:0">📂 FILE MANAGER</h2>
+          <span id="file-breadcrumb" class="header-meta" style="font-family:var(--font-mono);font-size:11px">/</span>
+        </div>
+        <div class="card-content" style="min-height:200px">
+          <div id="file-tree">
+            <div class="empty-state" style="color:var(--on-dark-soft)">⏳ Đang tải...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- .content -->
+
+  <script>
+    // ── State ─────────────────────────────────────────────────────
+    const espIp   = localStorage.getItem('selected_esp_ip') || '';
+    const isCloud = location.protocol === 'https:';
+    let ws = null;
+    let playingName = null;
+    let effectFiles = [];
+    let soundFiles  = [];
+
+    // ── Init ──────────────────────────────────────────────────────
+    window.addEventListener('DOMContentLoaded', () => {
+      const display = document.getElementById('device-display');
+      if (espIp) {
+        display.textContent = `💾 SD Card  ·  ${espIp}`;
+        display.style.color = '#fff';
+      }
+      if (isCloud) {
+        const badge = document.getElementById('conn-mode-badge');
+        badge.style.display = 'inline';
+        badge.textContent = 'MQTT';
+      }
+      refreshAll();
+    });
+
+    function refreshAll() {
+      loadStorage();
+      loadEffects();
+      loadSounds();
+      if (document.getElementById('tab-files').style.display !== 'none') loadFiles();
+    }
+
+    // ── Tabs ─────────────────────────────────────────────────────
+    function switchTab(name) {
+      ['effects','sounds','files'].forEach(t => {
+        document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
+        document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
+      });
+      if (name === 'files') loadFiles();
+    }
+
+    // ── Storage ───────────────────────────────────────────────────
+    function loadStorage() {
+      const status = document.getElementById('sd-status');
+      if (!espIp) { status.textContent = 'Chưa chọn thiết bị — vào Home để chọn'; return; }
+      fetch(`/api/storage/${espIp}`)
+        .then(r => r.json())
+        .then(d => {
+          if (!d.success) { status.textContent = 'SD card offline'; return; }
+          document.getElementById('sd-total').textContent = d.total_mb.toFixed(1) + ' MB';
+          document.getElementById('sd-used').textContent  = d.used_mb.toFixed(1) + ' MB';
+          document.getElementById('sd-free').textContent  = (d.total_mb - d.used_mb).toFixed(1) + ' MB';
+          document.getElementById('sd-bar').style.width = d.used_pct + '%';
+          document.getElementById('storage-pct').textContent = d.used_pct.toFixed(1) + '% used';
+          status.textContent = `FAT32 · ${d.total_mb.toFixed(0)} MB total`;
+        })
+        .catch(() => { status.textContent = 'Không kết nối được tới thiết bị'; });
+    }
+
+    // ── Effects ───────────────────────────────────────────────────
+    function loadEffects() {
+      Promise.all([
+        fetch('/api/sd/effects').then(r => r.json()).catch(() => ({ files: [] })),
+        espIp
+          ? fetch(`/api/device/${espIp}/files`).then(r => r.json()).catch(() => ({ files: [] }))
+          : Promise.resolve({ files: [] })
+      ]).then(([backendData, deviceData]) => {
+        const backendFiles = (backendData.files || []).map(f => ({ ...f, src: 'backend' }));
+        const deviceFiles  = (deviceData.files  || [])
+          .filter(f => f.name && f.name.endsWith('.bin'))
+          .map(f => ({ ...f, src: 'device' }));
+        // Merge, prefer backend copy if name matches
+        const map = new Map();
+        deviceFiles.forEach(f => map.set(f.name, f));
+        backendFiles.forEach(f => map.set(f.name, f));
+        effectFiles = [...map.values()];
+        renderEffects();
+      });
+    }
+
+    function renderEffects() {
+      const grid = document.getElementById('effects-grid');
+      document.getElementById('effects-title').textContent = `🎬 EFFECTS LIBRARY (${effectFiles.length})`;
+      document.getElementById('effects-meta').textContent  = effectFiles.length + ' files';
+
+      if (!effectFiles.length) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">Chưa có effect — Upload file .bin ở trên</div>';
+        return;
+      }
+
+      grid.innerHTML = effectFiles.map((f, i) => {
+        const name     = f.name || String(f);
+        const sizeFmt  = fmtSize(f.size);
+        const frames   = f.size ? Math.floor(f.size / 14) : '?';
+        const dur      = f.size ? ((frames * 80) / 1000).toFixed(1) + 's' : '?';
+        const isPlaying = playingName === name;
+        const src      = f.src || 'device';
+        const srcBadge = src === 'backend'
+          ? '<span style="font-size:9px;padding:1px 5px;border-radius:9999px;background:rgba(204,120,92,.25);color:#cc785c">server</span>'
+          : '<span style="font-size:9px;padding:1px 5px;border-radius:9999px;background:rgba(93,184,114,.2);color:#5db872">SD</span>';
+        return `
+        <div class="effect-card" id="ecard-${i}">
+          <div class="effect-card-hdr">
+            ${isPlaying ? '<div class="playing-dot"></div>' : '<div style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.15);flex-shrink:0"></div>'}
+            <span class="effect-card-name" title="${name}">${name}</span>
+            ${srcBadge}
+          </div>
+          <div class="effect-card-body">
+            <div class="effect-meta">Frames: <b>${frames}</b></div>
+            <div class="effect-meta">Duration: <b>${dur}</b></div>
+            <div class="effect-meta" style="margin-bottom:10px">Size: <b>${sizeFmt}</b></div>
+            <!-- Fake waveform -->
+            <div style="display:flex;gap:2px;align-items:flex-end;height:16px;margin-bottom:10px;opacity:.5">
+              ${Array.from({length:24},(_,j)=>`<div style="width:3px;border-radius:2px;background:var(--accent);height:${4+Math.floor(Math.sin(j*.7+i)*5+Math.random()*7)}px"></div>`).join('')}
+            </div>
+            <div style="display:flex;gap:5px">
+              <button class="btn btn-primary" style="flex:2;padding:6px 4px;font-size:11px;margin:0"
+                onclick="playEffect('${name}','${src}',${i})">${isPlaying ? '■ Stop' : '▶ Play'}</button>
+              <button class="btn btn-secondary" style="flex:1;padding:6px 4px;font-size:11px;margin:0"
+                onclick="downloadEffect('${name}')" title="Download">⬇</button>
+              <button class="btn btn-danger" style="width:32px;padding:6px 2px;font-size:11px;margin:0"
+                onclick="deleteEffect('${name}','${src}',${i})" title="Delete">✕</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    async function playEffect(name, src, idx) {
+      // Toggle stop
+      if (playingName === name) {
+        playingName = null;
+        if (ws) { ws.close(); ws = null; }
+        renderEffects();
+        return;
+      }
+      if (!espIp) { alert('Chưa chọn thiết bị'); return; }
+
+      // Get binary data
+      let buffer;
+      try {
+        const url = src === 'backend' ? `/api/sd/download/${encodeURIComponent(name)}` : null;
+        if (!url) { alert('Effect này chỉ có trên thiết bị, cần kết nối LAN WebSocket'); return; }
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(res.statusText);
+        buffer = await res.arrayBuffer();
+      } catch(e) {
+        alert('Không tải được effect: ' + e.message);
+        return;
+      }
+
+      playingName = name;
+      renderEffects();
+
+      const totalFrames = Math.floor(buffer.byteLength / 14);
+      if (!totalFrames) { alert('File không hợp lệ (không có frame)'); playingName = null; renderEffects(); return; }
+
+      if (isCloud) {
+        // MQTT: send frame-by-frame SET commands
+        await _playViaMQTT(buffer, totalFrames, name);
+      } else {
+        // LAN: WebSocket binary stream
+        _playViaWS(buffer, totalFrames, name);
+      }
+    }
+
+    function _playViaWS(buffer, totalFrames, name) {
+      if (ws) ws.close();
+      ws = new WebSocket(`ws://${espIp}:3333`);
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => {
+        // RESET frame
+        const reset = new ArrayBuffer(14);
+        new DataView(reset).setUint32(0, 0xffffffff, true);
+        ws.send(reset);
+        setTimeout(() => {
+          // START frame
+          const start = new ArrayBuffer(14);
+          new DataView(start).setUint32(0, 0xfffffffe, true);
+          ws.send(start);
+          // Stream all frames
+          for (let i = 0; i < totalFrames; i++) {
+            ws.send(buffer.slice(i * 14, (i + 1) * 14));
+          }
+          ws.close();
+          ws = null;
+          setTimeout(() => { playingName = null; renderEffects(); }, 500);
+        }, 80);
+      };
+      ws.onerror = () => {
+        playingName = null; ws = null; renderEffects();
+        alert('Không kết nối WebSocket. Dùng LAN (http://)');
+      };
+    }
+
+    async function _playViaMQTT(buffer, totalFrames, name) {
+      for (let i = 0; i < totalFrames && playingName === name; i++) {
+        const slice = new Uint8Array(buffer, i * 14, 14);
+        const bitsHex = Array.from(slice.slice(4, 14)).map(b => b.toString(16).padStart(2,'0')).join('');
+        await fetch('/api/cmd', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cmd: 'SET', bits: bitsHex })
+        }).catch(() => {});
+        await new Promise(r => setTimeout(r, 500));
+      }
+      await fetch('/api/cmd', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({cmd:'ALL_OFF'}) }).catch(()=>{});
+      playingName = null;
+      renderEffects();
+    }
+
+    function downloadEffect(name) {
+      window.location.href = `/api/sd/download/${encodeURIComponent(name)}`;
+    }
+
+    async function deleteEffect(name, src, idx) {
+      if (!confirm(`Xóa effect "${name}"?`)) return;
+      const res = await fetch(`/api/sd/effects/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (data.success) {
+        effectFiles.splice(idx, 1);
+        renderEffects();
+      } else {
+        alert('Lỗi xóa: ' + (data.error || 'unknown'));
+      }
+    }
+
+    // ── Sounds ────────────────────────────────────────────────────
+    function loadSounds() {
+      fetch('/api/sd/sounds')
+        .then(r => r.json())
+        .then(data => { soundFiles = data.files || []; renderSounds(); })
+        .catch(() => { soundFiles = []; renderSounds(); });
+    }
+
+    function renderSounds() {
+      const list = document.getElementById('sounds-list');
+      document.getElementById('sounds-title').textContent = `🔊 SOUNDS LIBRARY (${soundFiles.length})`;
+      document.getElementById('sounds-meta').textContent  = soundFiles.length + ' files';
+
+      if (!soundFiles.length) {
+        list.innerHTML = '<div class="empty-state">Chưa có sound — Upload file .mp3/.wav ở trên</div>';
+        return;
+      }
+
+      list.innerHTML = soundFiles.map((f, i) => {
+        const name = f.name || f;
+        const ext  = name.split('.').pop().toUpperCase();
+        const size = fmtSize(f.size);
+        const bars = Array.from({length:12},(_,j)=>`<div class="waveform-bar" style="height:${3+Math.floor(Math.sin(j*.9+i*2)*5+6)}px"></div>`).join('');
+        return `
+        <div class="sound-row">
+          <div class="sound-icon">🔊</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div>
+            <div style="font-size:11px;color:var(--muted)">${ext} · ${size}</div>
+          </div>
+          <div class="waveform">${bars}</div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn-primary" style="width:auto;margin:0;padding:5px 12px;font-size:11px" onclick="previewSound('${name}')">▶</button>
+            <button class="btn btn-danger"  style="width:auto;margin:0;padding:5px 10px;font-size:11px" onclick="deleteSound('${name}',${i})">✕</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    let currentAudio = null;
+    function previewSound(name) {
+      if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+      currentAudio = new Audio(`/api/sd/sounds/stream/${encodeURIComponent(name)}`);
+      currentAudio.play().catch(e => alert('Không phát được: ' + e.message));
+    }
+
+    async function deleteSound(name, idx) {
+      if (!confirm(`Xóa sound "${name}"?`)) return;
+      const res = await fetch(`/api/sd/sounds/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (data.success) { soundFiles.splice(idx, 1); renderSounds(); }
+      else alert('Lỗi: ' + (data.error || 'unknown'));
+    }
+
+    // ── File Manager ──────────────────────────────────────────────
+    function loadFiles(dir = '/') {
+      const tree = document.getElementById('file-tree');
+      document.getElementById('file-breadcrumb').textContent = dir;
+      tree.innerHTML = '<div class="file-row"><span style="color:var(--on-dark-soft);font-size:12px">Loading...</span></div>';
+      if (!espIp) { tree.innerHTML = '<div class="empty-state" style="color:var(--on-dark-soft)">Chưa chọn thiết bị</div>'; return; }
+      fetch(`/api/device/${espIp}/files`)
+        .then(r => r.json())
+        .then(data => renderFileTree(data.files || [], dir))
+        .catch(() => { tree.innerHTML = '<div class="empty-state" style="color:var(--on-dark-soft)">Không kết nối được</div>'; });
+    }
+
+    function renderFileTree(files, dir) {
+      const tree = document.getElementById('file-tree');
+      if (!files.length) { tree.innerHTML = '<div class="empty-state" style="color:var(--on-dark-soft)">Thẻ SD trống hoặc không hỗ trợ listing</div>'; return; }
+      const sorted = [...files].sort((a,b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name));
+      tree.innerHTML = sorted.map(f => {
+        const icon = f.isDir ? '📂' : f.name.endsWith('.bin') ? '🎬' : /\.(mp3|wav|ogg)$/i.test(f.name) ? '🔊' : /\.(json|txt|cfg)$/i.test(f.name) ? '📝' : '📄';
+        const size = f.isDir ? '' : fmtSize(f.size);
+        return `<div class="file-row" onclick="${f.isDir ? `loadFiles('${dir}${f.name}/')` : ''}">
+          <span style="font-size:15px">${icon}</span>
+          <span class="file-row-name" style="font-family:var(--font-mono)">${f.name}${f.isDir?'/':''}</span>
+          <span class="file-row-size" style="font-family:var(--font-mono)">${size}</span>
+        </div>`;
+      }).join('');
+    }
+
+    // ── Upload ────────────────────────────────────────────────────
+    function doUpload(fileList, type) {
+      if (!fileList.length) return;
+      const prog  = document.getElementById(`up-prog-${type}`);
+      const fill  = document.getElementById(`up-fill-${type}`);
+      const label = document.getElementById(`up-label-${type}`);
+      prog.style.display = 'block';
+      label.textContent = 'Đang upload...';
+
+      const form = new FormData();
+      Array.from(fileList).forEach(f => form.append('files', f));
+      form.append('type', type);
+
+      const xhr = new XMLHttpRequest();
+      xhr.upload.onprogress = e => {
+        if (!e.lengthComputable) return;
+        const pct = Math.round(e.loaded / e.total * 100);
+        fill.style.width = pct + '%';
+        label.textContent = `Uploading… ${pct}%`;
+      };
+      xhr.onload = () => {
+        let data;
+        try { data = JSON.parse(xhr.responseText); } catch { data = {}; }
+        if (data.success) {
+          label.textContent = `✓ Upload thành công ${data.count || ''} file(s)`;
+          fill.style.width = '100%';
+          setTimeout(() => { prog.style.display = 'none'; fill.style.width = '0%'; }, 2500);
+          if (type === 'effects') loadEffects();
+          else loadSounds();
+        } else {
+          label.textContent = '✕ Lỗi: ' + (data.error || 'unknown');
+        }
+      };
+      xhr.onerror = () => { label.textContent = '✕ Upload thất bại'; };
+      xhr.open('POST', '/api/sd/upload');
+      xhr.send(form);
+    }
+
+    function dzOver(e, type) {
+      e.preventDefault();
+      const dz = document.getElementById('dz-' + type);
+      dz.style.borderColor = 'var(--primary)';
+      dz.style.background  = 'rgba(204,120,92,.04)';
+    }
+    function dzLeave(type) {
+      const dz = document.getElementById('dz-' + type);
+      dz.style.borderColor = '';
+      dz.style.background  = '';
+    }
+    function dzDrop(e, type) {
+      e.preventDefault();
+      dzLeave(type);
+      doUpload(e.dataTransfer.files, type);
+    }
+
+    // ── Util ──────────────────────────────────────────────────────
+    function fmtSize(bytes) {
+      if (!bytes && bytes !== 0) return '—';
+      if (bytes >= 1024*1024) return (bytes/1024/1024).toFixed(1) + ' MB';
+      if (bytes >= 1024) return (bytes/1024).toFixed(1) + ' KB';
+      return bytes + ' B';
+    }
+  </script>
+</body>
+</html>

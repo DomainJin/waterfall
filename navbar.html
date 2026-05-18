@@ -13,6 +13,7 @@
             <li><a href="control.html" id="nav-control">🎛️ Control</a></li>
             <li><a href="monitor.html" id="nav-monitor">📊 Monitor</a></li>
             <li><a href="config.html" id="nav-config">⚙️ Config</a></li>
+            <li><a href="sd.html" id="nav-sd">💾 SD Card</a></li>
         </ul>
     </nav>
     <script>
@@ -20,9 +21,10 @@
         const currentPage = window.location.pathname.split('/').pop() || 'home.html';
         const navIds = {
             'home.html': 'nav-home',
-            'control.html': 'nav-control', 
+            'control.html': 'nav-control',
             'monitor.html': 'nav-monitor',
-            'config.html': 'nav-config'
+            'config.html': 'nav-config',
+            'sd.html': 'nav-sd'
         };
         const activeId = navIds[currentPage];
         if (activeId) {

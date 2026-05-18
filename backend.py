@@ -1017,6 +1017,120 @@ def api_paint_cmd():
     return jsonify({'success': True, 'sent': data})
 
 
+# ============================================================
+# SD Card Management API
+# Files stored locally: uploads/effects/ and uploads/sounds/
+# ============================================================
+
+SD_EFFECTS_DIR = Path('./uploads/effects')
+SD_SOUNDS_DIR  = Path('./uploads/sounds')
+
+def _ensure_sd_dirs():
+    SD_EFFECTS_DIR.mkdir(parents=True, exist_ok=True)
+    SD_SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
+
+_ensure_sd_dirs()
+
+EFFECT_EXTS = {'.bin', '.json'}
+SOUND_EXTS  = {'.mp3', '.wav', '.ogg'}
+
+
+@app.route('/api/sd/effects', methods=['GET'])
+def api_sd_effects():
+    """List uploaded effect files."""
+    files = []
+    for p in sorted(SD_EFFECTS_DIR.iterdir()):
+        if p.is_file() and p.suffix.lower() in EFFECT_EXTS:
+            files.append({'name': p.name, 'size': p.stat().st_size,
+                          'size_kb': round(p.stat().st_size / 1024, 2),
+                          'frames': p.stat().st_size // 14})
+    return jsonify({'success': True, 'files': files, 'count': len(files)})
+
+
+@app.route('/api/sd/sounds', methods=['GET'])
+def api_sd_sounds():
+    """List uploaded sound files."""
+    files = []
+    for p in sorted(SD_SOUNDS_DIR.iterdir()):
+        if p.is_file() and p.suffix.lower() in SOUND_EXTS:
+            files.append({'name': p.name, 'size': p.stat().st_size,
+                          'size_kb': round(p.stat().st_size / 1024, 2)})
+    return jsonify({'success': True, 'files': files, 'count': len(files)})
+
+
+@app.route('/api/sd/upload', methods=['POST'])
+def api_sd_upload():
+    """Upload effect or sound files to backend storage."""
+    if 'files' not in request.files:
+        return jsonify({'success': False, 'error': 'No files provided'}), 400
+
+    file_type = request.form.get('type', 'effects')
+    dest_dir  = SD_EFFECTS_DIR if file_type == 'effects' else SD_SOUNDS_DIR
+    allowed   = EFFECT_EXTS    if file_type == 'effects' else SOUND_EXTS
+
+    saved = []
+    for f in request.files.getlist('files'):
+        if not f.filename:
+            continue
+        fname = werkzeug.utils.secure_filename(f.filename)
+        ext   = Path(fname).suffix.lower()
+        if ext not in allowed:
+            continue
+        dest = dest_dir / fname
+        f.save(dest)
+        saved.append({'name': fname, 'size': dest.stat().st_size})
+        logger.info(f"[SD] Uploaded {file_type}: {fname}")
+
+    return jsonify({'success': True, 'count': len(saved), 'files': saved})
+
+
+@app.route('/api/sd/effects/<filename>', methods=['DELETE'])
+def api_sd_delete_effect(filename):
+    """Delete an effect file."""
+    safe = werkzeug.utils.secure_filename(filename)
+    path = SD_EFFECTS_DIR / safe
+    if path.exists():
+        path.unlink()
+        logger.info(f"[SD] Deleted effect: {safe}")
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'File not found'}), 404
+
+
+@app.route('/api/sd/sounds/<filename>', methods=['DELETE'])
+def api_sd_delete_sound(filename):
+    """Delete a sound file."""
+    safe = werkzeug.utils.secure_filename(filename)
+    path = SD_SOUNDS_DIR / safe
+    if path.exists():
+        path.unlink()
+        logger.info(f"[SD] Deleted sound: {safe}")
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'File not found'}), 404
+
+
+@app.route('/api/sd/download/<filename>', methods=['GET'])
+def api_sd_download(filename):
+    """Download an effect or sound file."""
+    safe = werkzeug.utils.secure_filename(filename)
+    for d in [SD_EFFECTS_DIR, SD_SOUNDS_DIR]:
+        p = d / safe
+        if p.exists():
+            return send_file(str(p), as_attachment=True, download_name=safe)
+    return jsonify({'error': 'File not found'}), 404
+
+
+@app.route('/api/sd/sounds/stream/<filename>', methods=['GET'])
+def api_sd_stream_sound(filename):
+    """Stream a sound file for browser audio preview."""
+    safe = werkzeug.utils.secure_filename(filename)
+    path = SD_SOUNDS_DIR / safe
+    if not path.exists():
+        return jsonify({'error': 'File not found'}), 404
+    mime_map = {'.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg'}
+    mime = mime_map.get(path.suffix.lower(), 'application/octet-stream')
+    return send_file(str(path), mimetype=mime)
+
+
 @app.route('/api/mqtt/publish', methods=['POST'])
 def api_mqtt_publish():
     """Gửi lệnh đến ESP32 qua MQTT (dùng khi truy cập từ internet)"""
