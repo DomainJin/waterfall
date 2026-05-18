@@ -5,48 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Home - WATERFALL</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        .device-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-            gap: 12px;
-            margin-top: 8px;
-        }
-        .device-card {
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            overflow: hidden;
-            background: var(--card);
-        }
-        .device-card-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            font-weight: 600;
-            font-size: 13px;
-        }
-        .device-card-header.online  { background: #d4edda; color: #155724; }
-        .device-card-header.offline { background: #f8d7da; color: #721c24; }
-        .device-card-body {
-            padding: 10px 12px;
-            font-size: 12px;
-            color: var(--text);
-        }
-        .device-card-body div { margin-bottom: 4px; }
-        .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-        .dot.online  { background: #27ae60; }
-        .dot.offline { background: #e74c3c; }
-        .device-card-footer {
-            padding: 8px 12px;
-            border-top: 1px solid var(--border);
-            display: flex;
-            gap: 8px;
-        }
-        .empty-state { text-align: center; color: #888; padding: 20px; }
-        .pulse { animation: pulse 2s infinite; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-    </style>
 </head>
 <body>
     <div id="navbar-container">
@@ -62,17 +20,17 @@
 
     <div class="content">
         <!-- Title -->
-        <div class="card">
-            <div class="card-header" style="background-color: #3498db;">
+        <div class="card card-dark">
+            <div class="card-header">
                 <h2>💧 WATERFALL CONTROL SYSTEM</h2>
             </div>
         </div>
 
         <!-- MQTT Devices Card -->
         <div class="card">
-            <div class="card-header" style="background-color: #27ae60; display: flex; justify-content: space-between; align-items: center;">
-                <h2 id="device-count" style="margin: 0;">📡 ESP32 DEVICES (0 Online / 0 Total)</h2>
-                <span id="refresh-indicator" style="font-size: 11px; opacity: 0.8;">auto-refresh 5s</span>
+            <div class="card-header">
+                <h2 id="device-count">📡 ESP32 DEVICES (0 Online / 0 Total)</h2>
+                <span id="refresh-indicator" class="header-meta">auto-refresh 5s</span>
             </div>
             <div class="card-content">
                 <div id="device-list">
@@ -82,38 +40,38 @@
         </div>
 
         <!-- Paint Controller Card -->
-        <div class="card">
-            <div class="card-header" style="background:linear-gradient(135deg,#e74c3c,#9b59b6);display:flex;justify-content:space-between;align-items:center;">
-                <h2 style="margin:0">🎨 PAINT CONTROLLER</h2>
-                <span id="paint-online" style="font-size:12px;font-weight:normal;opacity:.9">⏳ Đang kết nối...</span>
+        <div class="card card-dark">
+            <div class="card-header">
+                <h2>🎨 PAINT CONTROLLER</h2>
+                <span id="paint-online" class="header-meta">⏳ Đang kết nối...</span>
             </div>
             <div class="card-content">
                 <!-- Color swatch + hex -->
-                <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px">
-                    <div id="paint-swatch" style="width:64px;height:64px;border-radius:50%;border:3px solid var(--border,#ddd);flex-shrink:0;transition:background .3s;background:#888888"></div>
+                <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+                    <div id="paint-swatch" style="width:64px;height:64px;border-radius:50%;border:2px solid rgba(255,255,255,0.15);flex-shrink:0;transition:background .3s;background:#888"></div>
                     <div>
-                        <div id="paint-hex" style="font-size:22px;font-weight:700;font-family:monospace">#888888</div>
-                        <div id="paint-color-label" style="font-size:12px;color:#888;margin-top:2px">Color 0 / 19</div>
+                        <div id="paint-hex" style="font-size:22px;font-weight:400;font-family:var(--font-mono);color:var(--on-dark)">#888888</div>
+                        <div id="paint-color-label" style="font-size:12px;color:var(--on-dark-soft);margin-top:4px">Color 0 / 19</div>
                     </div>
                 </div>
                 <!-- Brush level dots -->
-                <div style="margin-bottom:12px">
-                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#666;margin-bottom:6px">Brush Level</div>
+                <div style="margin-bottom:14px">
+                    <div style="font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.8px;color:var(--on-dark-soft);margin-bottom:8px">Brush Level</div>
                     <div id="paint-level-dots" style="display:flex;gap:5px;align-items:flex-end;height:28px"></div>
                 </div>
                 <!-- Button state + timestamp -->
-                <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-                    <div id="paint-btn-badge" style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:#ecf0f1;color:#555">— —</div>
-                    <span id="paint-updated" style="font-size:11px;color:#aaa"></span>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+                    <div id="paint-btn-badge" style="display:inline-block;padding:3px 10px;border-radius:var(--r-pill);font-size:12px;font-weight:500;background:var(--surface-dark-el);color:var(--on-dark-soft)">— —</div>
+                    <span id="paint-updated" style="font-size:11px;color:var(--on-dark-soft);opacity:.6"></span>
                 </div>
                 <!-- Remote color control -->
-                <div style="padding-top:10px;border-top:1px solid var(--border,#ddd)">
-                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;color:#666;margin-bottom:6px">Remote Control</div>
+                <div style="padding-top:12px;border-top:1px solid rgba(255,255,255,0.08)">
+                    <div style="font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.8px;color:var(--on-dark-soft);margin-bottom:8px">Remote Control</div>
                     <div style="display:flex;gap:8px;align-items:center">
-                        <span style="font-size:11px;color:#888;flex-shrink:0">Color</span>
-                        <input type="range" id="paint-rc-color" min="0" max="19" value="0" style="flex:1;accent-color:#9b59b6">
-                        <div id="paint-rc-preview" style="width:24px;height:24px;border-radius:50%;border:2px solid var(--border,#ddd);flex-shrink:0;background:#FF0000"></div>
-                        <button class="btn btn-primary" style="padding:4px 10px;font-size:12px;flex-shrink:0" onclick="sendPaintRemote()">Set</button>
+                        <span style="font-size:11px;color:var(--on-dark-soft);flex-shrink:0">Color</span>
+                        <input type="range" id="paint-rc-color" min="0" max="19" value="0" style="flex:1;background:transparent">
+                        <div id="paint-rc-preview" style="width:24px;height:24px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);flex-shrink:0;background:#FF0000"></div>
+                        <button class="btn btn-primary" style="width:auto;margin:0;padding:6px 14px;font-size:12px;flex-shrink:0" onclick="sendPaintRemote()">Set</button>
                     </div>
                 </div>
             </div>
@@ -121,7 +79,7 @@
 
         <!-- Quick Connect Card -->
         <div class="card">
-            <div class="card-header" style="background-color: #9b59b6;">
+            <div class="card-header">
                 <h3>🔗 QUICK CONNECT (LAN)</h3>
             </div>
             <div class="card-content">
@@ -140,13 +98,13 @@
         </div>
 
         <!-- Go to Control -->
-        <div class="card">
-            <div class="card-header" style="background-color: #f39c12;">
+        <div class="card card-coral">
+            <div class="card-header">
                 <h3>🎛️ GO TO CONTROL PANEL</h3>
             </div>
             <div class="card-content">
-                <a href="control.html" class="btn btn-primary" style="text-align: center; display: block;">
-                    🚀 Open Main Control (control.html)
+                <a href="control.html" class="btn" style="background:rgba(255,255,255,0.18);color:#fff;border:1px solid rgba(255,255,255,0.3);display:block;text-align:center;">
+                    🚀 Open Main Control
                 </a>
             </div>
         </div>

@@ -27,34 +27,34 @@
 
         <!-- Real-time Metrics -->
         <div class="grid-4">
-            <div class="metric-card" style="--card-color: #3498db;">
-                <div class="metric-header">📱 CONNECTION</div>
+            <div class="metric-card">
+                <div class="metric-header">CONNECTION</div>
                 <div class="metric-value" id="connection-status">N/A</div>
             </div>
-            <div class="metric-card" style="--card-color: #27ae60;">
-                <div class="metric-header">📺 FRAMES SENT</div>
+            <div class="metric-card">
+                <div class="metric-header">FRAMES SENT</div>
                 <div class="metric-value" id="frames-sent">0</div>
             </div>
-            <div class="metric-card" style="--card-color: #f39c12;">
-                <div class="metric-header">⏱️ FPS</div>
+            <div class="metric-card">
+                <div class="metric-header">FPS</div>
                 <div class="metric-value" id="fps-display">0</div>
             </div>
-            <div class="metric-card" style="--card-color: #9b59b6;">
-                <div class="metric-header">💧 ACTIVE VALVES</div>
+            <div class="metric-card">
+                <div class="metric-header">ACTIVE VALVES</div>
                 <div class="metric-value" id="active-valves">0</div>
             </div>
         </div>
 
         <!-- Device Status -->
         <div class="card">
-            <div class="card-header" style="background-color: #27ae60;">
+            <div class="card-header">
                 <h2>📡 ESP32 DEVICE STATUS</h2>
             </div>
             <div class="card-content">
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
                     <div class="status-panel">
                         <h3>IP Address</h3>
-                        <p id="device-ip" style="font-family: var(--mono); color: var(--accent);">—</p>
+                        <p id="device-ip" style="font-family: var(--font-mono); color: var(--primary);">—</p>
                     </div>
                     <div class="status-panel">
                         <h3>Uptime</h3>
@@ -69,8 +69,8 @@
         </div>
 
         <!-- Real-time Chart -->
-        <div class="card">
-            <div class="card-header" style="background-color: #3498db;">
+        <div class="card card-dark">
+            <div class="card-header">
                 <h2>📈 REAL-TIME MONITORING</h2>
             </div>
             <div class="card-content">
@@ -79,8 +79,8 @@
         </div>
 
         <!-- Network Stats -->
-        <div class="card">
-            <div class="card-header" style="background-color: #f39c12;">
+        <div class="card card-cream">
+            <div class="card-header">
                 <h2>🌐 NETWORK STATS</h2>
             </div>
             <div class="card-content">
@@ -107,7 +107,7 @@
 
         <!-- Custom Command -->
         <div class="card">
-            <div class="card-header" style="background-color: #e74c3c;">
+            <div class="card-header">
                 <h2>💻 CUSTOM COMMAND</h2>
             </div>
             <div class="card-content">

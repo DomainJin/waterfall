@@ -25,6 +25,10 @@
 #define PIN_STCP    4     // GPIO4  → ST_CP (latch)
 #define PIN_DS     16    // GPIO23 → DS   (data)
 
+// #define PIN_SHCP    0     // GPIO2  → SH_CP (shift clock) [NO CONFLICT with SD]
+// #define PIN_STCP    12     // GPIO4  → ST_CP (latch)
+// #define PIN_DS     3    // GPIO23 → DS   (data)
+
 // DIR của 74HC245D nối VCC — A→B luôn enabled, không cần GPIO
 #define PIN_DIR     -1
 
