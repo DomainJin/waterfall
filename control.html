@@ -872,8 +872,9 @@
           </div>
           <!-- MQTT notice (shown when in MQTT mode) -->
           <div class="mode-notice" id="mqtt-stream-notice" style="display:none;margin-top:8px;">
-            <strong>MQTT mode</strong> — Gửi từng frame qua SET command (~500ms/frame).<br>
-            Dùng LAN (<code>http://</code>) để stream animation tốc độ cao.
+            <strong>MQTT mode</strong> — Gửi frame-by-frame qua SET (~500ms/frame, chậm).<br>
+            <strong>Send Pattern</strong> = test pattern toán học (không dùng ảnh).<br>
+            Dùng LAN (<code>http://</code>) để stream tốc độ cao.
           </div>
         </div>
 
@@ -1295,15 +1296,21 @@
 
       function _applyMqttUI(on) {
         const notice  = document.getElementById('mqtt-stream-notice');
-        const lanArea = document.getElementById('lan-send-area');
         const btnPat  = document.getElementById('btn-send-pattern');
-        if (notice)  notice.style.display  = on ? 'block' : 'none';
-        if (lanArea) lanArea.style.display = on ? 'none' : 'block';
-        // Pattern can still work via MQTT (slow frame-by-frame SET commands)
+        const btnSend = document.getElementById('btn-send');
+        if (notice)  notice.style.display = on ? 'block' : 'none';
+        // Both buttons work in MQTT mode via frame-by-frame SET commands
         if (btnPat) {
           btnPat.disabled = false;
           btnPat.textContent = on ? '▶ Send Pattern (MQTT)' : '▶ Send Pattern';
         }
+        if (btnSend) {
+          // Keep enabled state based on frames, update label for MQTT mode
+          btnSend.textContent = on ? '▶ Send Image (MQTT)' : '▶ Send to ESP32';
+        }
+        // Always show the send area — lan-send-area works in both modes
+        const lanArea = document.getElementById('lan-send-area');
+        if (lanArea) lanArea.style.display = 'block';
       }
 
       function connectESP() {
@@ -1318,7 +1325,7 @@
           _setMode('mqtt', `MQTT → ${chosen}`);
           document.getElementById("conn-dot").className = 'dot on';
           document.getElementById("conn-dot").style.background = '#5db8a6';
-          document.getElementById("btn-send").disabled = true;
+          document.getElementById("btn-send").disabled = (frames.length === 0);
           document.getElementById("btn-sim").disabled = false;
           _applyMqttUI(true);
           log(`Kết nối MQTT → ${chosen}`, "log-ok");
@@ -1965,21 +1972,23 @@
 
       // ── Streaming ────────────────────────────────────────────
       function startStream() {
+        if (!frames.length) { log("Chưa load ảnh — drop ảnh vào Image Source trước", "log-warn"); return; }
+
+        // ── MQTT mode: gửi image frames qua SET command ───────────
         if (connMode === 'mqtt') {
-          log("Streaming không khả dụng qua MQTT/Internet", "log-err");
-          log("Mở trang từ LAN (file:// hoặc http://) để stream animation", "log-warn");
+          log("Gửi image frames qua MQTT (background/invert đã áp dụng)...", "log-info");
+          _sendPatternMQTT(frames);
+          startSimOnly();
           return;
         }
-        if (!frames.length) {
-          log("No frames", "log-warn");
-          return;
-        }
+
+        // ── LAN mode: binary WebSocket stream ─────────────────────
         stopAll();
-        log("Sending to ESP32...");
+        log("Sending image to ESP32 (LAN)...");
         sendReset();
         setTimeout(() => {
           sendStart();
-          frames.forEach((f) => sendRaw(mkFrame(f.ts_ms, f.bits)));
+          frames.forEach(f => sendRaw(mkFrame(f.ts_ms, f.bits)));
           log(`Sent ${frames.length} frames`, "log-ok");
           startSimulation();
         }, 80);
