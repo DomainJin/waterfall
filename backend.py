@@ -974,7 +974,8 @@ def api_cmd():
     if target:
         payload_dict["target"] = target
 
-    mqtt_relay.publish(TOPIC_VALVE, json.dumps(payload_dict), qos=1)
+    # separators=(',',':') → compact JSON không space → firmware indexOf("bits\":\"") match
+    mqtt_relay.publish(TOPIC_VALVE, json.dumps(payload_dict, separators=(',', ':')), qos=1)
     logger.info(f"[CMD] cmd={cmd} target={target or 'broadcast'}")
     return jsonify({"success": True, "method": "mqtt", "cmd": cmd, "target": target or "broadcast"})
 
@@ -1149,7 +1150,7 @@ def api_mqtt_publish():
             return jsonify({"success": bool(result), "method": "udp", "result": result})
         return jsonify({"error": "MQTT chưa kết nối và không có IP ESP32"}), 503
 
-    msg = json.dumps({"ip": esp_ip, "cmd": payload}) if esp_ip else payload
+    msg = json.dumps({"ip": esp_ip, "cmd": payload}, separators=(',', ':')) if esp_ip else payload
     mqtt_relay.publish(topic, msg)
     return jsonify({"success": True, "method": "mqtt", "topic": topic})
 

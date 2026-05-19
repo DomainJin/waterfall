@@ -92,12 +92,14 @@ private:
             reset();
             Serial.println("[WS] CMD STREAM_STOP");
         } else if (json.indexOf("\"SET\"") >= 0) {
-            int idx = json.indexOf("\"bits\":\"");
+            // Robust parse: handle "bits":"..." và "bits": "..." (Python adds space)
+            int idx = json.indexOf("\"bits\":");
             if (idx < 0) return;
-            int start = idx + 8;
-            int end   = json.indexOf('"', start);
-            if (end <= start) return;
-            String hex = json.substring(start, end);
+            int q1 = json.indexOf('"', idx + 7);   // quote mở của value
+            if (q1 < 0) return;
+            int q2 = json.indexOf('"', q1 + 1);    // quote đóng
+            if (q2 <= q1) return;
+            String hex = json.substring(q1 + 1, q2);
             if ((int)hex.length() < NUM_BOARDS * 2) return;
             uint8_t bits[NUM_BOARDS];
             for (int i = 0; i < NUM_BOARDS; i++) {

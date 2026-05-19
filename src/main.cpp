@@ -138,19 +138,28 @@ void setup() {
                     g_valve.allOn();
                     Serial.println("[MQTT] ALL_ON executed");
                 } else if (payload.indexOf("\"SET\"") >= 0) {
-                    int idx = payload.indexOf("\"bits\":\"");
+                    // Tìm key "bits": linh hoạt (có hoặc không có space sau dấu ':')
+                    // Vì Python json.dumps() mặc định thêm space: "bits": "..."
+                    // nhưng compact JSON không có space: "bits":"..."
+                    int idx = payload.indexOf("\"bits\":");
                     if (idx >= 0) {
-                        int start = idx + 8;
-                        int end   = payload.indexOf('"', start);
-                        if (end > start) {
-                            String hex = payload.substring(start, end);
-                            if ((int)hex.length() >= NUM_BOARDS * 2) {
-                                uint8_t bits[NUM_BOARDS];
-                                for (int i = 0; i < NUM_BOARDS; i++) {
-                                    bits[i] = (uint8_t)strtol(hex.substring(i*2, i*2+2).c_str(), nullptr, 16);
+                        // Bỏ qua space/tab giữa ':' và '"'
+                        int q1 = payload.indexOf('"', idx + 7);  // tìm quote mở của value
+                        if (q1 > 0) {
+                            int q2 = payload.indexOf('"', q1 + 1);  // tìm quote đóng
+                            if (q2 > q1) {
+                                String hex = payload.substring(q1 + 1, q2);
+                                if ((int)hex.length() >= NUM_BOARDS * 2) {
+                                    uint8_t bits[NUM_BOARDS];
+                                    for (int i = 0; i < NUM_BOARDS; i++) {
+                                        bits[i] = (uint8_t)strtol(hex.substring(i*2, i*2+2).c_str(), nullptr, 16);
+                                    }
+                                    g_valve.write(bits);
+                                    Serial.printf("[MQTT] SET bits executed: %s\n", hex.c_str());
+                                } else {
+                                    Serial.printf("[MQTT] SET bits too short: %d < %d (hex=%s)\n",
+                                                  hex.length(), NUM_BOARDS*2, hex.c_str());
                                 }
-                                g_valve.write(bits);
-                                Serial.println("[MQTT] SET bits executed");
                             }
                         }
                     }
