@@ -1328,20 +1328,23 @@
         log(`Cascade: ${boards} boards × 8 = ${totalBits} bits, ${delayMs}ms/step (${connMode})`, 'log-info');
 
         if (connMode === 'mqtt') {
-          // ── MQTT mode: SET command mỗi step ──────────────────────
-          const mqttDelay = Math.max(delayMs, 600); // MQTT ~500ms latency
-          if (delayMs < 600) log(`MQTT mode: delay ${delayMs}ms → clamped 600ms (MQTT latency)`, 'log-warn');
-          log(`Total: ${totalBits} steps × ${mqttDelay}ms = ${(totalBits*mqttDelay/1000).toFixed(1)}s`, 'log-info');
+          // ── MQTT mode: fire-and-forget → delay chính xác ─────────
+          // Không await response — gửi xong thì delay ngay
+          // Thực tế: lệnh đến ESP32 = t_gửi + latency_MQTT (~100-500ms tuỳ mạng)
+          // nhưng các lệnh cách nhau ĐÚNG delayMs ms
+          log(`Cascade MQTT: ${totalBits} steps × ${delayMs}ms`, 'log-info');
 
           for (let bit = 0; bit < totalBits; bit++) {
             if (!connected) break;
             const hex = _cascadeHex(bit);
-            status.textContent = `Bit ${bit + 1} / ${totalBits}  [${hex.slice(-4)}]`;
+            status.textContent = `Bit ${bit + 1} / ${totalBits}`;
             fill.style.width = ((bit + 1) / totalBits * 100).toFixed(1) + '%';
-            log(`Step ${bit+1}: SET ${hex}`, 'log-info');
-            await sendCommand('SET', { bits: hex }).catch(e => log('SET error: ' + e.message, 'log-err'));
-            await new Promise(r => setTimeout(r, mqttDelay));
+            // Fire-and-forget: không await, delay bắt đầu ngay lập tức
+            sendCommand('SET', { bits: hex }).catch(e => log('ERR: ' + e.message, 'log-err'));
+            await new Promise(r => setTimeout(r, delayMs));
           }
+          // Buffer nhỏ để lệnh cuối kịp execute trước ALL_OFF
+          await new Promise(r => setTimeout(r, Math.max(delayMs, 200)));
           await sendCommand('ALL_OFF').catch(() => {});
 
         } else {
