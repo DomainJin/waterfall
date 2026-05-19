@@ -1290,15 +1290,17 @@
         el.value = Math.max(1, Math.min(16, parseInt(el.value) || 1));
       }
 
-      // Xây dựng bits array (wire format - daisy-chain reversed)
+      // Xây dựng bits array (wire format — daisy-chain reversed)
       // Bật đồng thời tất cả bits từ 0 đến currentBit
+      // ⚠ Dùng CHIPS (= numBoards, set bởi updateConfig), KHÔNG phải NUM_BOARDS
       function _cascadeBitsArr(currentBit) {
-        const arr = new Uint8Array(NUM_BOARDS);
+        const n   = CHIPS || 10;                  // CHIPS = numBoards
+        const arr = new Uint8Array(n);
         for (let b = 0; b <= currentBit; b++) {
-          const boardFromFront = Math.floor(b / 8); // 0 = board 1 (gần DS nhất)
-          const wireIdx        = NUM_BOARDS - 1 - boardFromFront;
+          const boardFromFront = Math.floor(b / 8); // 0-indexed từ board 1 (gần DS)
+          const wireIdx        = n - 1 - boardFromFront; // reversed cho daisy-chain
           const bitInByte      = b % 8;
-          if (wireIdx >= 0 && wireIdx < NUM_BOARDS) arr[wireIdx] |= (1 << bitInByte);
+          if (wireIdx >= 0 && wireIdx < n) arr[wireIdx] |= (1 << bitInByte);
         }
         return arr;
       }
@@ -1328,13 +1330,16 @@
         if (connMode === 'mqtt') {
           // ── MQTT mode: SET command mỗi step ──────────────────────
           const mqttDelay = Math.max(delayMs, 600); // MQTT ~500ms latency
-          if (delayMs < 600) log('MQTT: delay tối thiểu 600ms do latency', 'log-warn');
+          if (delayMs < 600) log(`MQTT mode: delay ${delayMs}ms → clamped 600ms (MQTT latency)`, 'log-warn');
+          log(`Total: ${totalBits} steps × ${mqttDelay}ms = ${(totalBits*mqttDelay/1000).toFixed(1)}s`, 'log-info');
 
           for (let bit = 0; bit < totalBits; bit++) {
             if (!connected) break;
-            status.textContent = `Bit ${bit + 1} / ${totalBits}`;
+            const hex = _cascadeHex(bit);
+            status.textContent = `Bit ${bit + 1} / ${totalBits}  [${hex.slice(-4)}]`;
             fill.style.width = ((bit + 1) / totalBits * 100).toFixed(1) + '%';
-            await sendCommand('SET', { bits: _cascadeHex(bit) }).catch(e => log(e.message, 'log-err'));
+            log(`Step ${bit+1}: SET ${hex}`, 'log-info');
+            await sendCommand('SET', { bits: hex }).catch(e => log('SET error: ' + e.message, 'log-err'));
             await new Promise(r => setTimeout(r, mqttDelay));
           }
           await sendCommand('ALL_OFF').catch(() => {});
