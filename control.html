@@ -929,8 +929,9 @@
             <span class="val-label" id="pattern-frame-ms-val" style="min-width:38px">80ms</span>
           </div>
           <div style="margin-top:8px;display:flex;gap:6px">
-            <button class="btn btn-primary btn-sm" id="btn-send-pattern" onclick="generateAndSendPattern()" style="flex:1">▶ Send Pattern</button>
-            <button class="btn btn-ghost btn-sm" onclick="simulatePatternOnly()" style="flex:1">Simulate</button>
+            <button class="btn btn-primary btn-sm" id="btn-send-pattern" onclick="generateAndSendPattern()" style="flex:1">▶ Loop Pattern</button>
+            <button class="btn btn-danger btn-sm" id="btn-stop-pattern" onclick="stopPatternLoop()" style="flex:1;display:none">⏹ Stop</button>
+            <button class="btn btn-ghost btn-sm" onclick="simulatePatternOnly()" style="flex:0 0 auto">Simulate</button>
           </div>
           <!-- MQTT notice (shown when in MQTT mode) -->
           <div class="mode-notice" id="mqtt-stream-notice" style="display:none;margin-top:8px;">
@@ -1207,6 +1208,8 @@
       // 'mqtt' = Lệnh qua Cloud backend /api/cmd (internet)
       let connMode = 'none';
       let mqttTarget = '';  // device name khi dùng MQTT mode
+      let _patternLoopActive = false;
+      let _patternLoopTimer  = null;
       let simRunning = false,
         animId = null;
       let simCanvas,
@@ -1481,7 +1484,7 @@
         // Both buttons work in MQTT mode via frame-by-frame SET commands
         if (btnPat) {
           btnPat.disabled = false;
-          btnPat.textContent = on ? '▶ Send Pattern (MQTT)' : '▶ Send Pattern';
+          btnPat.textContent = on ? '▶ Loop Pattern (MQTT)' : '▶ Loop Pattern';
         }
         if (btnSend) {
           // Keep enabled state based on frames, update label for MQTT mode
@@ -2081,29 +2084,61 @@
         );
       }
 
-      // Send pattern via MQTT: fire-and-forget SET per frame, sleep exactly frameMs
+      // ── Pattern loop control ──────────────────────────────────────
+      function _patternLoopSetUI(running) {
+        const btn     = document.getElementById('btn-send-pattern');
+        const btnStop = document.getElementById('btn-stop-pattern');
+        if (btn)     btn.disabled = running;
+        if (btnStop) btnStop.style.display = running ? '' : 'none';
+        if (!running) document.getElementById('progress').style.width = '0%';
+      }
+
+      function stopPatternLoop() {
+        _patternLoopActive = false;
+        if (_patternLoopTimer) { clearTimeout(_patternLoopTimer); _patternLoopTimer = null; }
+        sendCommand('ALL_OFF').catch(() => {});
+        if (connMode === 'lan') stopAll();
+        _patternLoopSetUI(false);
+        log("Pattern loop stopped", "log-ok");
+      }
+
+      // LAN loop: send one cycle then schedule next
+      function _sendLanCycle(patternFrames, cycleMs) {
+        if (!_patternLoopActive) return;
+        sendReset();
+        setTimeout(() => {
+          if (!_patternLoopActive) return;
+          sendStart();
+          patternFrames.forEach(f => sendRaw(mkFrame(f.ts_ms, f.bits)));
+          _patternLoopTimer = setTimeout(() => _sendLanCycle(patternFrames, cycleMs), cycleMs);
+        }, 80);
+      }
+
+      // MQTT loop: fire-and-forget SET per frame, repeat indefinitely
       async function _sendPatternMQTT(patternFrames, frameMs) {
-        const btn = document.getElementById('btn-send-pattern');
-        if (btn) btn.disabled = true;
-        log(`MQTT: ${patternFrames.length} frames × ${frameMs}ms = ${(patternFrames.length * frameMs / 1000).toFixed(1)}s`, "log-warn");
+        _patternLoopActive = true;
+        _patternLoopSetUI(true);
+        const N = patternFrames.length;
+        log(`MQTT loop: ${N} frames × ${frameMs}ms — nhấn Stop để dừng`, "log-warn");
         await sendCommand('ALL_OFF').catch(() => {});
         await new Promise(r => setTimeout(r, frameMs));
-        for (let i = 0; i < patternFrames.length; i++) {
-          if (!connected) break;
-          const f = patternFrames[i];
-          const hexBits = Array.from(f.bits instanceof Uint8Array ? f.bits : new Uint8Array(f.bits))
-            .map(b => b.toString(16).padStart(2, '0')).join('');
-          // Fire-and-forget: don't block on HTTP response — exact frameMs timing
-          sendCommand('SET', { bits: hexBits }).catch(e => log(`Frame ${i+1} lỗi: ${e.message}`, 'log-err'));
-          const pct = Math.round((i + 1) / patternFrames.length * 100);
-          document.getElementById('progress').style.width = pct + '%';
-          log(`Frame ${i+1}/${patternFrames.length}`, "log-info");
-          await new Promise(r => setTimeout(r, frameMs));
+        let cycle = 0;
+        outer:
+        while (_patternLoopActive && connected) {
+          cycle++;
+          for (let i = 0; i < N; i++) {
+            if (!_patternLoopActive || !connected) break outer;
+            const f = patternFrames[i];
+            const hexBits = Array.from(f.bits instanceof Uint8Array ? f.bits : new Uint8Array(f.bits))
+              .map(b => b.toString(16).padStart(2, '0')).join('');
+            sendCommand('SET', { bits: hexBits }).catch(e => log(`[${cycle}:${i+1}] lỗi: ${e.message}`, 'log-err'));
+            document.getElementById('progress').style.width = `${Math.round((i + 1) / N * 100)}%`;
+            await new Promise(r => setTimeout(r, frameMs));
+          }
         }
         await sendCommand('ALL_OFF').catch(() => {});
-        document.getElementById('progress').style.width = '0%';
-        if (btn) btn.disabled = false;
-        log("MQTT pattern done", "log-ok");
+        _patternLoopSetUI(false);
+        log("MQTT loop ended", "log-ok");
       }
 
       function generateAndSendPattern() {
@@ -2122,22 +2157,21 @@
         log(`Pattern: ${type} — ${numRows} rows × ${frameMs}ms = ${(numRows * frameMs / 1000).toFixed(1)}s`, "log-ok");
         updateAnimationInfo();
 
-        // ── MQTT mode: fire-and-forget SET per frame ───────────────
+        // ── MQTT mode: fire-and-forget SET per frame, infinite loop ──
         if (connMode === 'mqtt') {
           _sendPatternMQTT(frames, frameMs);
-          simulatePatternOnly();   // run local sim in parallel
+          simulatePatternOnly();
           return;
         }
 
-        // ── LAN mode: binary WebSocket stream ─────────────────────
+        // ── LAN mode: infinite loop via WebSocket ─────────────────
         stopAll();
-        sendReset();
-        setTimeout(() => {
-          sendStart();
-          frames.forEach(f => sendRaw(mkFrame(f.ts_ms, f.bits)));
-          log(`Sent ${frames.length} frames (LAN)`, "log-ok");
-          startSimulation();
-        }, 80);
+        _patternLoopActive = true;
+        _patternLoopSetUI(true);
+        const cycleMs = numRows * frameMs + 500;
+        log(`LAN loop: ${numRows} rows × ${frameMs}ms, cycle=${cycleMs}ms — nhấn Stop để dừng`, "log-ok");
+        _sendLanCycle(frames, cycleMs);
+        startSimulation();
       }
 
       function simulatePatternOnly() {
