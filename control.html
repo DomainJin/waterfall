@@ -919,13 +919,22 @@
             oninput="updatePatternPreview()"
           />
           <div class="val-label" id="pattern-density-val">50%</div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <label style="font-size:11px;white-space:nowrap;color:var(--muted)">Rows</label>
+            <input type="number" id="pattern-rows" min="4" max="32" value="10"
+              style="width:48px;padding:3px 5px;font-size:11px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);text-align:center"/>
+            <label style="font-size:11px;white-space:nowrap;color:var(--muted)">Frame ms</label>
+            <input type="range" id="pattern-frame-ms" min="50" max="500" value="80"
+              style="flex:1" oninput="document.getElementById('pattern-frame-ms-val').textContent=this.value+'ms'"/>
+            <span class="val-label" id="pattern-frame-ms-val" style="min-width:38px">80ms</span>
+          </div>
           <div style="margin-top:8px;display:flex;gap:6px">
             <button class="btn btn-primary btn-sm" id="btn-send-pattern" onclick="generateAndSendPattern()" style="flex:1">▶ Send Pattern</button>
             <button class="btn btn-ghost btn-sm" onclick="simulatePatternOnly()" style="flex:1">Simulate</button>
           </div>
           <!-- MQTT notice (shown when in MQTT mode) -->
           <div class="mode-notice" id="mqtt-stream-notice" style="display:none;margin-top:8px;">
-            <strong>MQTT mode</strong> — Gửi frame-by-frame qua SET (~500ms/frame, chậm).<br>
+            <strong>MQTT mode</strong> — Fire-and-forget SET mỗi Frame ms.<br>
             <strong>Send Pattern</strong> = test pattern toán học (không dùng ảnh).<br>
             Dùng LAN (<code>http://</code>) để stream tốc độ cao.
           </div>
@@ -2072,26 +2081,24 @@
         );
       }
 
-      // Send pattern via MQTT: one SET command per frame, with delay between
-      async function _sendPatternMQTT(patternFrames) {
+      // Send pattern via MQTT: fire-and-forget SET per frame, sleep exactly frameMs
+      async function _sendPatternMQTT(patternFrames, frameMs) {
         const btn = document.getElementById('btn-send-pattern');
         if (btn) btn.disabled = true;
-        log(`MQTT: gửi ${patternFrames.length} frames (SET command mỗi ~500ms)...`, "log-warn");
+        log(`MQTT: ${patternFrames.length} frames × ${frameMs}ms = ${(patternFrames.length * frameMs / 1000).toFixed(1)}s`, "log-warn");
         await sendCommand('ALL_OFF').catch(() => {});
+        await new Promise(r => setTimeout(r, frameMs));
         for (let i = 0; i < patternFrames.length; i++) {
           if (!connected) break;
           const f = patternFrames[i];
           const hexBits = Array.from(f.bits instanceof Uint8Array ? f.bits : new Uint8Array(f.bits))
             .map(b => b.toString(16).padStart(2, '0')).join('');
-          try {
-            await sendCommand('SET', { bits: hexBits });
-          } catch(e) {
-            log(`Frame ${i+1} lỗi: ${e.message}`, "log-err");
-          }
+          // Fire-and-forget: don't block on HTTP response — exact frameMs timing
+          sendCommand('SET', { bits: hexBits }).catch(e => log(`Frame ${i+1} lỗi: ${e.message}`, 'log-err'));
           const pct = Math.round((i + 1) / patternFrames.length * 100);
           document.getElementById('progress').style.width = pct + '%';
           log(`Frame ${i+1}/${patternFrames.length}`, "log-info");
-          await new Promise(r => setTimeout(r, 500));
+          await new Promise(r => setTimeout(r, frameMs));
         }
         await sendCommand('ALL_OFF').catch(() => {});
         document.getElementById('progress').style.width = '0%';
@@ -2102,21 +2109,22 @@
       function generateAndSendPattern() {
         if (!connected) { log("Not connected — kết nối thiết bị trước", "log-warn"); return; }
 
-        const type    = document.getElementById("pattern-type").value;
-        const density = parseInt(document.getElementById("pattern-density").value) / 100;
-        const patternRows = generatePattern(type, 16, VALVES, density);
+        const type     = document.getElementById("pattern-type").value;
+        const density  = parseInt(document.getElementById("pattern-density").value) / 100;
+        const numRows  = Math.max(4, Math.min(32, parseInt(document.getElementById("pattern-rows").value) || 10));
+        const frameMs  = Math.max(50, Math.min(500, parseInt(document.getElementById("pattern-frame-ms").value) || 80));
+        const patternRows = generatePattern(type, numRows, VALVES, density);
 
         frames = [];
-        const adv = 80;
-        patternRows.forEach((row, idx) => frames.push({ ts_ms: idx * adv, bits: row }));
-        frames.push({ ts_ms: frames.length * adv, bits: new Uint8Array(CHIPS) });
+        patternRows.forEach((row, idx) => frames.push({ ts_ms: idx * frameMs, bits: row }));
+        frames.push({ ts_ms: frames.length * frameMs, bits: new Uint8Array(CHIPS) });
 
-        log(`Pattern: ${type} — ${frames.length} frames`, "log-ok");
+        log(`Pattern: ${type} — ${numRows} rows × ${frameMs}ms = ${(numRows * frameMs / 1000).toFixed(1)}s`, "log-ok");
         updateAnimationInfo();
 
-        // ── MQTT mode: gửi từng frame qua SET command ─────────────
+        // ── MQTT mode: fire-and-forget SET per frame ───────────────
         if (connMode === 'mqtt') {
-          _sendPatternMQTT(frames);
+          _sendPatternMQTT(frames, frameMs);
           simulatePatternOnly();   // run local sim in parallel
           return;
         }
@@ -2133,20 +2141,19 @@
       }
 
       function simulatePatternOnly() {
-        const type = document.getElementById("pattern-type").value;
-        const density =
-          parseInt(document.getElementById("pattern-density").value) / 100;
+        const type    = document.getElementById("pattern-type").value;
+        const density = parseInt(document.getElementById("pattern-density").value) / 100;
+        const numRows = Math.max(4, Math.min(32, parseInt(document.getElementById("pattern-rows").value) || 10));
+        const frameMs = Math.max(50, Math.min(500, parseInt(document.getElementById("pattern-frame-ms").value) || 80));
 
-        const patternRows = generatePattern(type, 16, VALVES, density);
+        const patternRows = generatePattern(type, numRows, VALVES, density);
 
         frames = [];
-        const adv = 80;
         patternRows.forEach((patternRow, rowIdx) => {
-          const ts = rowIdx * adv;
-          frames.push({ ts_ms: ts, bits: patternRow });
+          frames.push({ ts_ms: rowIdx * frameMs, bits: patternRow });
         });
         frames.push({
-          ts_ms: frames.length * adv,
+          ts_ms: frames.length * frameMs,
           bits: new Uint8Array(CHIPS),
         });
 
@@ -2162,8 +2169,9 @@
 
         // ── MQTT mode: gửi image frames qua SET command ───────────
         if (connMode === 'mqtt') {
+          const frameMs = Math.max(50, Math.min(500, parseInt(document.getElementById("pattern-frame-ms").value) || 80));
           log("Gửi image frames qua MQTT (background/invert đã áp dụng)...", "log-info");
-          _sendPatternMQTT(frames);
+          _sendPatternMQTT(frames, frameMs);
           startSimOnly();
           return;
         }
