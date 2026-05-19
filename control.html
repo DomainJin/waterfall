@@ -1722,7 +1722,9 @@
         const nR = pixelRows.length;
         if (!nR) return;
         const pH = Math.max(2, Math.min(8, Math.floor(280 / nR)));
-        canvas.width = VALVES * 8;
+        const containerW = (canvas.parentElement || document.body).clientWidth || 760;
+        const pixW = Math.max(2, Math.floor(containerW / VALVES));
+        canvas.width = VALVES * pixW;
         canvas.height = nR * pH;
         const ctx = canvas.getContext("2d");
         let open = 0;
@@ -1732,7 +1734,7 @@
               ctx.fillStyle = "#00d4ff";
               open++;
             } else ctx.fillStyle = "#050f1a";
-            ctx.fillRect(x * 8, y * pH, 8, pH);
+            ctx.fillRect(x * pixW, y * pH, pixW, pH);
           }
         const pct = ((open / (nR * VALVES)) * 100).toFixed(1);
         document.getElementById("dim-badge").textContent =
@@ -1805,7 +1807,9 @@
         const bits = getTestBits();
 
         // Draw test preview (1 row, VALVES columns)
-        canvas.width = VALVES * 4;
+        const containerW = (canvas.parentElement || document.body).clientWidth || 760;
+        const pixW = Math.max(2, Math.floor(containerW / VALVES));
+        canvas.width = VALVES * pixW;
         canvas.height = 40;
         const ctx = canvas.getContext("2d");
 
@@ -1815,7 +1819,7 @@
           const reversedByteIdx = CHIPS - 1 - byteIdx; // Account for daisy-chain byte reversal
           const isActive = (bits[reversedByteIdx] >> bitIdx) & 1;
           ctx.fillStyle = isActive ? "#00d4ff" : "#050f1a";
-          ctx.fillRect(x * 4, 0, 4, 40);
+          ctx.fillRect(x * pixW, 0, pixW, 40);
         }
       }
 
@@ -1981,9 +1985,11 @@
                 break;
               }
               case "wave": {
-                const waveY =
-                  Math.sin(x * (Math.PI / (cols / 4))) * (rows * 0.3);
-                active = Math.abs(y - center.y - waveY) < rows * density * 0.2;
+                // numCycles scales with resolution: 1 cycle for <6 boards, 2 for ≥6
+                const numCycles = cols >= 48 ? 2 : 1;
+                const waveY = Math.sin(x * (2 * Math.PI * numCycles / cols)) * (rows * 0.35);
+                const band = Math.max(rows * 0.08, rows * density * 0.25);
+                active = Math.abs(y - center.y - waveY) < band;
                 break;
               }
               case "striped": {
@@ -2042,7 +2048,10 @@
         // Show on preview canvas (reuse pixel-canvas)
         const canvas = document.getElementById("pixel-canvas");
         const pH = Math.max(2, Math.floor(280 / previewPattern.length));
-        canvas.width = VALVES * 4;
+        // pixW scales so canvas always fills container width regardless of VALVES count
+        const containerW = (canvas.parentElement || document.body).clientWidth || 760;
+        const pixW = Math.max(2, Math.floor(containerW / VALVES));
+        canvas.width = VALVES * pixW;
         canvas.height = previewPattern.length * pH;
         const ctx = canvas.getContext("2d");
 
@@ -2054,7 +2063,7 @@
             const isActive = (previewPattern[y][reversedByteIdx] >> bitIdx) & 1;
 
             ctx.fillStyle = isActive ? "#00d4ff" : "#050f1a";
-            ctx.fillRect(x * 4, y * pH, 4, pH);
+            ctx.fillRect(x * pixW, y * pH, pixW, pH);
           }
         }
         log(
