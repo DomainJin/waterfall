@@ -1250,30 +1250,32 @@
 
       // ── Configuration ────────────────────────────────────────────
       function updateConfig() {
-        numBoards =
-          parseInt(document.getElementById("config-boards").value) || 2;
-        CHIPS = numBoards;
+        numBoards = parseInt(document.getElementById("config-boards").value) || 1;
+        CHIPS  = numBoards;
         VALVES = numBoards * 8;
 
-        // Update display
+        // Frame size = 4 timestamp + NUM_BOARDS valve bytes (auto với firmware)
+        const frameBytes = 4 + numBoards;
+        const fwNote = numBoards > 10 ? ' ⚠ cần recompile firmware' : '';
+
         document.getElementById("config-boards-val").textContent = numBoards;
         document.getElementById("config-valves-val").textContent = VALVES;
         document.getElementById("config-frame-val").textContent =
-          FRAME_BYTES + " (4+" + numBoards + ")";
+          frameBytes + " bytes (4+" + numBoards + ")" + fwNote;
 
         // Reset test bits input
         document.getElementById("test-bits").max = VALVES;
         document.getElementById("test-bits").value = Math.min(
-          parseInt(document.getElementById("test-bits").value),
+          parseInt(document.getElementById("test-bits").value) || VALVES,
           VALVES,
         );
 
-        // Rebuild test UI
         buildTestUI();
-        log(
-          `Config updated: ${numBoards} boards = ${VALVES} valves`,
-          "log-info",
-        );
+        log(`Config: ${numBoards} board(s) — ${VALVES} valves — frame ${frameBytes}B`, "log-info");
+
+        // Refresh previews khi board count thay đổi
+        if (pixelRows.length > 0) reprocess();   // Reprocess ảnh với VALVES mới
+        updatePatternPreview();                   // Cập nhật canvas test pattern
       }
 
       const FRAME_BYTES = 14; // Fixed frame size
@@ -1306,8 +1308,12 @@
       }
 
       function _cascadeHex(currentBit) {
-        return Array.from(_cascadeBitsArr(currentBit))
-                    .map(b => b.toString(16).padStart(2,'0')).join('');
+        const arr = _cascadeBitsArr(currentBit);  // CHIPS bytes, wire-reversed
+        const n   = arr.length;
+        // Pad lên 10 bytes, đặt ở CUỐI (khớp với mkFrame offset logic)
+        const padded = new Uint8Array(10);
+        padded.set(arr, 10 - n);
+        return Array.from(padded).map(b => b.toString(16).padStart(2,'0')).join('');
       }
 
       async function runCascadeTest() {
@@ -1540,12 +1546,19 @@
         document.getElementById("conn-dot").style.background = "#e74c3c";
       }
 
-      // Frame: 14 bytes [ts_u32le][bits×10]
+      // Frame: [ts_u32le 4B][bits NUM_BOARDS B]
+      // fwBoards = số board firmware được compile (phải khớp NUM_BOARDS trong config.h)
+      // Khi CHIPS < fwBoards: bits đặt ở CUỐI → board 1 (DS) luôn ở byte cuối
+      // Khi CHIPS = fwBoards: off=0, đặt từ đầu (behaviour cũ, không đổi)
       function mkFrame(ts, bits) {
-        const b = new ArrayBuffer(14);
+        const fwBoards   = 10;          // ← đổi nếu recompile firmware với NUM_BOARDS khác
+        const frameBytes = 4 + fwBoards;
+        const b   = new ArrayBuffer(frameBytes);
         new DataView(b).setUint32(0, ts >>> 0, true);
         const src = bits instanceof Uint8Array ? bits : new Uint8Array(bits);
-        new Uint8Array(b).set(src.subarray(0, 10), 4);
+        const n   = Math.min(src.length, fwBoards);
+        const off = fwBoards - n;       // board 1 (DS) luôn ở cuối frame
+        new Uint8Array(b).set(src.subarray(0, n), 4 + off);
         return b;
       }
       function sendRaw(buf) {

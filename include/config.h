@@ -46,8 +46,9 @@
 #define NUM_VALVES  80    // NUM_BOARDS * 8 (tự động tính)
 
 // ── Protocol ─────────────────────────────────────────────────
-// Frame 14 bytes: [0..3]=ts_ms LE, [4..13]=bits[10]
-#define FRAME_BYTES      14
+// Frame format: [0..3]=ts_ms LE, [4..(4+NUM_BOARDS-1)]=bits[NUM_BOARDS]
+// FRAME_BYTES tự động theo NUM_BOARDS — chỉ cần thay NUM_BOARDS
+#define FRAME_BYTES      (4 + NUM_BOARDS)
 #define TS_RESET         0xFFFFFFFFUL
 #define TS_START         0xFFFFFFFEUL
 
