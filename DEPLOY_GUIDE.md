@@ -28,16 +28,16 @@ LAN User
 
 ## Thông tin hạ tầng
 
-| Thành phần | Giá trị |
-|---|---|
-| VPS | DigitalOcean Singapore, 512MB RAM, Ubuntu 22.04 |
-| IP VPS | 139.59.107.54 |
-| Domain | waterfall.domainjin.io.vn |
-| DNS | ZoneDNS (ns1-ns4.zonedns.vn) |
-| MQTT User | waterfall |
-| MQTT Port (plain) | 1883 |
-| MQTT Port (TLS) | 8883 |
-| WebSocket (LAN) | ws://ESP_IP:3333 |
+| Thành phần        | Giá trị                                         |
+| ----------------- | ----------------------------------------------- |
+| VPS               | DigitalOcean Singapore, 512MB RAM, Ubuntu 22.04 |
+| IP VPS            | 139.59.107.54                                   |
+| Domain            | waterfall.domainjin.io.vn                       |
+| DNS               | ZoneDNS (ns1-ns4.zonedns.vn)                    |
+| MQTT User         | waterfall                                       |
+| MQTT Port (plain) | 1883                                            |
+| MQTT Port (TLS)   | 8883                                            |
+| WebSocket (LAN)   | ws://ESP_IP:3333                                |
 
 ---
 
@@ -131,8 +131,10 @@ docker compose logs -f   # kiểm tra
 
 ### 5. Redeploy sau khi update code
 
+ssh root@139.59.107.54
+
 ```bash
-cd ~/fall && git pull
+cd ~/waterfall && git pull
 cd deploy
 docker compose build --no-cache backend
 docker compose up -d backend
@@ -147,6 +149,7 @@ docker compose up -d backend
 **Nguyên nhân:** Nginx chưa chạy → không serve `.well-known/acme-challenge/`
 
 **Fix:** Dùng `--standalone` thay vì `--webroot` — certbot tự mở HTTP server trên port 80:
+
 ```bash
 docker compose run --rm -p 80:80 --entrypoint "certbot certonly --standalone ..." certbot
 ```
@@ -158,6 +161,7 @@ docker compose run --rm -p 80:80 --entrypoint "certbot certonly --standalone ...
 **Nguyên nhân:** Trong Docker, `/dev/stdout` không writable cho mosquitto_passwd
 
 **Fix:** Mount volume và ghi thẳng vào file:
+
 ```bash
 docker run --rm -v $(pwd)/mosquitto:/mosquitto/config eclipse-mosquitto \
   mosquitto_passwd -b -c /mosquitto/config/passwd waterfall <password>
@@ -168,10 +172,12 @@ docker run --rm -v $(pwd)/mosquitto:/mosquitto/config eclipse-mosquitto \
 ### Lỗi 3: Mosquitto — `Duplicate password_file` / `chown: Read-only file system`
 
 **Nguyên nhân:**
+
 - `password_file` khai báo 2 lần trong config
 - Mount volume với `:ro` (read-only) nên mosquitto không thể chown
 
 **Fix trong `mosquitto.conf`:**
+
 ```conf
 # Đặt auth settings ở GLOBAL scope, không lặp lại trong listener block
 allow_anonymous false
@@ -187,11 +193,12 @@ password_file /mosquitto/config/passwd
 **Nguyên nhân:** Volume `mosquitto/certs` chưa được mount vào container
 
 **Fix trong `docker-compose.yml`:**
+
 ```yaml
 volumes:
   - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
   - ./mosquitto/passwd:/mosquitto/config/passwd
-  - ./mosquitto/certs:/mosquitto/certs          # ← thêm dòng này
+  - ./mosquitto/certs:/mosquitto/certs # ← thêm dòng này
   - mosquitto_data:/mosquitto/data
   - mosquitto_log:/mosquitto/log
 ```
@@ -223,6 +230,7 @@ volumes:
 **Nguyên nhân:** `chown -R appuser:appuser /app` trong Dockerfile đọc toàn bộ filesystem khi build
 
 **Fix trong `Dockerfile`:** Xóa lệnh `chown -R`, giảm gunicorn workers xuống 1:
+
 ```dockerfile
 # Xóa dòng này:
 # RUN chown -R appuser:appuser /app
@@ -239,6 +247,7 @@ CMD ["gunicorn", "--workers", "1", ...]
 **Nguyên nhân:** Gunicorn import module nhưng không gọi `main()`, nên `mqtt_relay.start()` trong `main()` không được gọi
 
 **Fix trong `backend.py`:**
+
 ```python
 mqtt_relay = MQTTRelay()
 mqtt_relay.start()   # ← gọi ở module level, ngoài main()
@@ -251,6 +260,7 @@ mqtt_relay.start()   # ← gọi ở module level, ngoài main()
 **Nguyên nhân:** Khi ESP32 thứ 2 kết nối với cùng `clientId`, broker kick ESP32 thứ 1
 
 **Fix trong `main.cpp`:**
+
 ```cpp
 uint8_t mac[6];
 WiFi.macAddress(mac);
@@ -266,6 +276,7 @@ g_mqtt.begin(MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_USER, MQTT_PASSWORD, clien
 **Nguyên nhân:** Backend có timeout 60s tự đổi trạng thái thành offline
 
 **Fix:** Xóa timeout logic — chỉ dựa vào MQTT Will Message:
+
 ```python
 # Will Message (ESP32 tự publish khi mất kết nối):
 # {"online": false, "name": "waterfall-xxxxxx"}
@@ -279,9 +290,10 @@ g_mqtt.begin(MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_USER, MQTT_PASSWORD, clien
 **Nguyên nhân:** `sendReset()` trong MQTT mode map sang ALL_OFF; các hàm streaming gọi `sendReset()` mà không check mode
 
 **Fix:** Thêm guard vào tất cả hàm streaming:
+
 ```javascript
 function startStream() {
-  if (connMode === 'mqtt') {
+  if (connMode === "mqtt") {
     log("Streaming không khả dụng qua MQTT", "log-err");
     return;
   }
@@ -295,10 +307,10 @@ function startStream() {
 
 ### Chọn đường tự động
 
-| Truy cập | Mode | Giao thức | Latency |
-|---|---|---|---|
-| `file://` hoặc `http://` | LAN | WebSocket `ws://ESP_IP:3333` | <5ms |
-| `https://waterfall...` | MQTT | POST `/api/cmd` → MQTT Broker → ESP32 | ~200ms |
+| Truy cập                 | Mode | Giao thức                             | Latency |
+| ------------------------ | ---- | ------------------------------------- | ------- |
+| `file://` hoặc `http://` | LAN  | WebSocket `ws://ESP_IP:3333`          | <5ms    |
+| `https://waterfall...`   | MQTT | POST `/api/cmd` → MQTT Broker → ESP32 | ~200ms  |
 
 ### Command format (JSON — dùng cho cả LAN WS text và MQTT)
 
@@ -310,13 +322,15 @@ function startStream() {
 ```
 
 Với `target` (điều khiển device cụ thể):
+
 ```json
-{"cmd": "ALL_OFF", "target": "waterfall-b87524"}
+{ "cmd": "ALL_OFF", "target": "waterfall-b87524" }
 ```
 
 ### Streaming animation (chỉ LAN)
 
 Binary WebSocket frame 14 bytes:
+
 ```
 [ts_ms : 4 bytes LE] [bits : 10 bytes, 1 byte/board]
 
@@ -326,19 +340,19 @@ TS_START = 0xFFFFFFFE  → bắt đầu phát
 
 ### MQTT Topics
 
-| Topic | Chiều | Nội dung |
-|---|---|---|
-| `waterfall/status` | ESP32 → Cloud | `{"online":true,"name":"...","ip":"..."}` |
-| `waterfall/cmd/valve` | Cloud → ESP32 | `{"cmd":"ALL_OFF"\|"ALL_ON"\|"SET","bits":"..."}` |
-| `waterfall/cmd/stream` | Cloud → ESP32 | `{"frame":"hex14bytes"}` |
+| Topic                  | Chiều         | Nội dung                                          |
+| ---------------------- | ------------- | ------------------------------------------------- |
+| `waterfall/status`     | ESP32 → Cloud | `{"online":true,"name":"...","ip":"..."}`         |
+| `waterfall/cmd/valve`  | Cloud → ESP32 | `{"cmd":"ALL_OFF"\|"ALL_ON"\|"SET","bits":"..."}` |
+| `waterfall/cmd/stream` | Cloud → ESP32 | `{"frame":"hex14bytes"}`                          |
 
 ### Backend API
 
-| Endpoint | Method | Mô tả |
-|---|---|---|
-| `/api/devices` | GET | Danh sách ESP32 từ MQTT |
-| `/api/cmd` | POST | Gửi lệnh điều khiển qua MQTT |
-| `/api/mqtt/status` | GET | Trạng thái kết nối MQTT broker |
+| Endpoint           | Method | Mô tả                          |
+| ------------------ | ------ | ------------------------------ |
+| `/api/devices`     | GET    | Danh sách ESP32 từ MQTT        |
+| `/api/cmd`         | POST   | Gửi lệnh điều khiển qua MQTT   |
+| `/api/mqtt/status` | GET    | Trạng thái kết nối MQTT broker |
 
 ---
 

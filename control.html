@@ -785,6 +785,58 @@
               Build
             </button>
           </div>
+          <!-- ── Cascade Test ─────────────────────────────────── -->
+          <div style="margin-top:10px;padding:10px;background:var(--card);border-radius:6px;border:1px solid var(--border)">
+            <div style="font-size:9px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">
+              Cascade Test — sáng dần từ bit 0 → bit cuối
+            </div>
+            <div style="display:flex;gap:8px;align-items:flex-end">
+
+              <!-- Ô 1: số board, có nút +/− -->
+              <div style="flex:1;min-width:0">
+                <label style="font-size:10px;margin-bottom:4px">Boards</label>
+                <div style="display:flex;gap:3px;align-items:center">
+                  <button class="btn btn-ghost btn-sm"
+                    style="width:26px;padding:4px;font-size:13px;line-height:1"
+                    onclick="cascadeBoardsDelta(-1)">−</button>
+                  <input type="number" id="cascade-boards" value="10" min="1" max="16"
+                    style="text-align:center;padding:5px 2px;font-size:12px"
+                    onchange="cascadeClamp()">
+                  <button class="btn btn-ghost btn-sm"
+                    style="width:26px;padding:4px;font-size:13px;line-height:1"
+                    onclick="cascadeBoardsDelta(1)">+</button>
+                </div>
+              </div>
+
+              <!-- Ô 2: slider delay 50–1000ms -->
+              <div style="flex:2;min-width:0">
+                <label style="font-size:10px;margin-bottom:4px">
+                  Delay
+                  <span id="cascade-delay-lbl"
+                    style="color:var(--accent);font-family:var(--mono);margin-left:4px">200ms</span>
+                </label>
+                <input type="range" id="cascade-delay"
+                  min="50" max="1000" value="200" step="50"
+                  oninput="document.getElementById('cascade-delay-lbl').textContent=this.value+'ms'">
+              </div>
+
+              <!-- Ô 3: nút Test Signal -->
+              <div style="flex:1;min-width:0">
+                <label style="font-size:10px;margin-bottom:4px;visibility:hidden">.</label>
+                <button class="btn btn-primary btn-sm" id="btn-cascade"
+                  onclick="runCascadeTest()" style="width:100%;padding:7px 4px">
+                  ▶ Test Signal
+                </button>
+              </div>
+
+            </div>
+            <div id="cascade-progress" style="display:none;margin-top:8px">
+              <div class="progress-bar"><div class="progress-fill" id="cascade-fill" style="width:0%"></div></div>
+              <div id="cascade-status" style="font-size:10px;color:var(--muted);margin-top:4px"></div>
+            </div>
+          </div>
+          <!-- ── End Cascade Test ──────────────────────────────── -->
+
           <div id="test-bits-container" style="margin-top: 10px; display: none">
             <label>Select bits to activate:</label>
             <div
@@ -1227,6 +1279,101 @@
       const FRAME_BYTES = 14; // Fixed frame size
 
       // ── Dual-path helpers ─────────────────────────────────────
+
+      // ── Cascade Test ──────────────────────────────────────────────
+      function cascadeBoardsDelta(d) {
+        const el = document.getElementById('cascade-boards');
+        el.value = Math.max(1, Math.min(16, (parseInt(el.value) || 10) + d));
+      }
+      function cascadeClamp() {
+        const el = document.getElementById('cascade-boards');
+        el.value = Math.max(1, Math.min(16, parseInt(el.value) || 1));
+      }
+
+      // Xây dựng bits array (wire format - daisy-chain reversed)
+      // Bật đồng thời tất cả bits từ 0 đến currentBit
+      function _cascadeBitsArr(currentBit) {
+        const arr = new Uint8Array(NUM_BOARDS);
+        for (let b = 0; b <= currentBit; b++) {
+          const boardFromFront = Math.floor(b / 8); // 0 = board 1 (gần DS nhất)
+          const wireIdx        = NUM_BOARDS - 1 - boardFromFront;
+          const bitInByte      = b % 8;
+          if (wireIdx >= 0 && wireIdx < NUM_BOARDS) arr[wireIdx] |= (1 << bitInByte);
+        }
+        return arr;
+      }
+
+      function _cascadeHex(currentBit) {
+        return Array.from(_cascadeBitsArr(currentBit))
+                    .map(b => b.toString(16).padStart(2,'0')).join('');
+      }
+
+      async function runCascadeTest() {
+        const boards    = Math.max(1, Math.min(16, parseInt(document.getElementById('cascade-boards').value) || numBoards));
+        const delayMs   = parseInt(document.getElementById('cascade-delay').value) || 200;
+        const totalBits = boards * 8;
+        const btn       = document.getElementById('btn-cascade');
+        const prog      = document.getElementById('cascade-progress');
+        const fill      = document.getElementById('cascade-fill');
+        const status    = document.getElementById('cascade-status');
+
+        if (!connected) { log('Not connected — kết nối thiết bị trước', 'log-warn'); return; }
+
+        btn.disabled = true;
+        prog.style.display = 'block';
+        fill.style.width = '0%';
+
+        log(`Cascade: ${boards} boards × 8 = ${totalBits} bits, ${delayMs}ms/step (${connMode})`, 'log-info');
+
+        if (connMode === 'mqtt') {
+          // ── MQTT mode: SET command mỗi step ──────────────────────
+          const mqttDelay = Math.max(delayMs, 600); // MQTT ~500ms latency
+          if (delayMs < 600) log('MQTT: delay tối thiểu 600ms do latency', 'log-warn');
+
+          for (let bit = 0; bit < totalBits; bit++) {
+            if (!connected) break;
+            status.textContent = `Bit ${bit + 1} / ${totalBits}`;
+            fill.style.width = ((bit + 1) / totalBits * 100).toFixed(1) + '%';
+            await sendCommand('SET', { bits: _cascadeHex(bit) }).catch(e => log(e.message, 'log-err'));
+            await new Promise(r => setTimeout(r, mqttDelay));
+          }
+          await sendCommand('ALL_OFF').catch(() => {});
+
+        } else {
+          // ── LAN mode: binary WebSocket stream ────────────────────
+          const cascadeFrames = [];
+          for (let bit = 0; bit < totalBits; bit++) {
+            cascadeFrames.push({ ts_ms: bit * delayMs, bits: _cascadeBitsArr(bit) });
+          }
+          // Frame tắt tất cả ở cuối
+          cascadeFrames.push({ ts_ms: totalBits * delayMs, bits: new Uint8Array(NUM_BOARDS) });
+
+          frames = cascadeFrames;
+          updateAnimationInfo();
+
+          stopAll();
+          sendReset();
+          setTimeout(() => {
+            sendStart();
+            frames.forEach(f => sendRaw(mkFrame(f.ts_ms, f.bits)));
+            log(`Cascade ${totalBits} frames → ESP32 (LAN)`, 'log-ok');
+            // Show progress bar counting up
+            let step = 0;
+            const iv = setInterval(() => {
+              step++;
+              if (step >= totalBits) { clearInterval(iv); fill.style.width = '100%'; return; }
+              fill.style.width = (step / totalBits * 100).toFixed(1) + '%';
+              status.textContent = `Bit ${step} / ${totalBits}`;
+            }, delayMs);
+          }, 80);
+        }
+
+        log('Cascade test done', 'log-ok');
+        status.textContent = 'Done ✓';
+        fill.style.width = '100%';
+        btn.disabled = false;
+        setTimeout(() => { prog.style.display = 'none'; fill.style.width = '0%'; }, 3000);
+      }
 
       // Collapsible section toggle
       function toggleSec(bodyId, chevId) {

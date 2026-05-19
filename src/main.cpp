@@ -203,12 +203,11 @@ void loop() {
     uint32_t loop_start = micros();
     
     // ─────────────────────────────────────────────────────
-    // PRIORITY 1: Process any pending valve control frames
-    // (should complete in milliseconds)
+    // PRIORITY 1: Scheduler xử lý frame queue + auto-finish
+    // Không gard bởi streaming() — scheduler tự kiểm tra nội bộ
+    // Cho phép drain queue sau khi client disconnect
     // ─────────────────────────────────────────────────────
-    if (g_tcp.streaming()) {
-        g_scheduler.tick();  // Process frame queue, apply valve changes
-    }
+    g_scheduler.tick();
     
     // ─────────────────────────────────────────────────────
     // PRIORITY 2: Handle WebSocket communication (events)
