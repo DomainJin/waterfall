@@ -1351,7 +1351,7 @@
             cascadeFrames.push({ ts_ms: bit * delayMs, bits: _cascadeBitsArr(bit) });
           }
           // Frame tắt tất cả ở cuối
-          cascadeFrames.push({ ts_ms: totalBits * delayMs, bits: new Uint8Array(NUM_BOARDS) });
+          cascadeFrames.push({ ts_ms: totalBits * delayMs, bits: new Uint8Array(CHIPS || 10) });
 
           frames = cascadeFrames;
           updateAnimationInfo();
