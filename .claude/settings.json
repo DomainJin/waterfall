@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m ' *)",
+      "Bash(dir /b)",
+      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\SGM\\\\Documents\\\\PlatformIO\\\\Projects\\\\waterfall\" -Recurse | Select-Object FullName | Where-Object { $_.FullName -match '\\\\\\(2\\\\\\)' })",
+      "PowerShell(git -C \"c:\\\\Users\\\\SGM\\\\Documents\\\\PlatformIO\\\\Projects\\\\waterfall\" show HEAD:src/main.cpp)",
+      "PowerShell(git -C \"c:\\\\Users\\\\SGM\\\\Documents\\\\PlatformIO\\\\Projects\\\\waterfall\" show HEAD:src/main.cpp 2>&1)",
+      "PowerShell(git -C \"c:\\\\Users\\\\SGM\\\\Documents\\\\PlatformIO\\\\Projects\\\\waterfall\" show HEAD:src/main.cpp 2>$null)"
+    ]
+  }
+}

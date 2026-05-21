@@ -820,9 +820,14 @@
                   oninput="document.getElementById('cascade-delay-lbl').textContent=this.value+'ms'">
               </div>
 
-              <!-- Ô 3: nút Test Signal -->
+              <!-- Ô 3: chế độ + nút Test Signal -->
               <div style="flex:1;min-width:0">
-                <label style="font-size:10px;margin-bottom:4px;visibility:hidden">.</label>
+                <label style="font-size:10px;margin-bottom:4px">Chế độ</label>
+                <select id="cascade-mode" style="width:100%;padding:4px 5px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:10px;margin-bottom:4px">
+                  <option value="cascade">Bật dần</option>
+                  <option value="sequential">Bật lần lượt</option>
+                  <option value="all">Bật tất cả</option>
+                </select>
                 <button class="btn btn-primary btn-sm" id="btn-cascade"
                   onclick="runCascadeTest()" style="width:100%;padding:7px 4px">
                   ▶ Test Signal
@@ -1328,10 +1333,30 @@
         return Array.from(padded).map(b => b.toString(16).padStart(2,'0')).join('');
       }
 
+      // Chỉ bật đúng 1 van tại vị trí currentBit (không tích lũy)
+      function _sequentialBitsArr(currentBit) {
+        const n   = CHIPS || 10;
+        const arr = new Uint8Array(n);
+        const boardFromFront = Math.floor(currentBit / 8);
+        const wireIdx        = n - 1 - boardFromFront;
+        const bitInByte      = currentBit % 8;
+        if (wireIdx >= 0 && wireIdx < n) arr[wireIdx] |= (1 << bitInByte);
+        return arr;
+      }
+
+      // Pad Uint8Array (CHIPS bytes) thành 10-byte hex string cho MQTT SET
+      function _toHex10(arr) {
+        const padded = new Uint8Array(10);
+        const n = arr.length;
+        padded.set(arr, 10 - n);
+        return Array.from(padded).map(b => b.toString(16).padStart(2,'0')).join('');
+      }
+
       async function runCascadeTest() {
         const boards    = Math.max(1, Math.min(16, parseInt(document.getElementById('cascade-boards').value) || numBoards));
         const delayMs   = parseInt(document.getElementById('cascade-delay').value) || 200;
         const totalBits = boards * 8;
+        const mode      = document.getElementById('cascade-mode').value; // 'cascade' | 'sequential' | 'all'
         const btn       = document.getElementById('btn-cascade');
         const prog      = document.getElementById('cascade-progress');
         const fill      = document.getElementById('cascade-fill');
@@ -1343,38 +1368,55 @@
         prog.style.display = 'block';
         fill.style.width = '0%';
 
-        log(`Cascade: ${boards} boards × 8 = ${totalBits} bits, ${delayMs}ms/step (${connMode})`, 'log-info');
+        // ── Bật tất cả: 1 lệnh duy nhất ─────────────────────────────
+        if (mode === 'all') {
+          log(`Test: BẬT TẤT CẢ — ${boards} boards (${totalBits} van)`, 'log-info');
+          const allBits = new Uint8Array(CHIPS || 10).fill(0xFF);
+          if (connMode === 'mqtt') {
+            await sendCommand('SET', { bits: _toHex10(allBits) }).catch(e => log('ERR: ' + e.message, 'log-err'));
+          } else {
+            stopAll();
+            sendReset();
+            setTimeout(() => {
+              sendStart();
+              sendRaw(mkFrame(0, allBits));
+              sendRaw(mkFrame(5000, new Uint8Array(CHIPS || 10))); // tự tắt sau 5s
+            }, 80);
+          }
+          fill.style.width = '100%';
+          status.textContent = 'Done ✓';
+          btn.disabled = false;
+          setTimeout(() => { prog.style.display = 'none'; fill.style.width = '0%'; }, 3000);
+          log('Bật tất cả done', 'log-ok');
+          return;
+        }
+
+        // ── Bật dần / Bật lần lượt ────────────────────────────────────
+        const modeLabel = mode === 'cascade' ? 'bật dần' : 'bật lần lượt';
+        const getBitsArr = bit => mode === 'cascade' ? _cascadeBitsArr(bit) : _sequentialBitsArr(bit);
+
+        log(`Test [${modeLabel}]: ${boards} boards × 8 = ${totalBits} bits, ${delayMs}ms/step (${connMode})`, 'log-info');
 
         if (connMode === 'mqtt') {
-          // ── MQTT mode: fire-and-forget → delay chính xác ─────────
-          // Không await response — gửi xong thì delay ngay
-          // Thực tế: lệnh đến ESP32 = t_gửi + latency_MQTT (~100-500ms tuỳ mạng)
-          // nhưng các lệnh cách nhau ĐÚNG delayMs ms
-          log(`Cascade MQTT: ${totalBits} steps × ${delayMs}ms`, 'log-info');
-
           for (let bit = 0; bit < totalBits; bit++) {
             if (!connected) break;
-            const hex = _cascadeHex(bit);
             status.textContent = `Bit ${bit + 1} / ${totalBits}`;
             fill.style.width = ((bit + 1) / totalBits * 100).toFixed(1) + '%';
-            // Fire-and-forget: không await, delay bắt đầu ngay lập tức
-            sendCommand('SET', { bits: hex }).catch(e => log('ERR: ' + e.message, 'log-err'));
+            sendCommand('SET', { bits: _toHex10(getBitsArr(bit)) }).catch(e => log('ERR: ' + e.message, 'log-err'));
             await new Promise(r => setTimeout(r, delayMs));
           }
-          // Buffer nhỏ để lệnh cuối kịp execute trước ALL_OFF
           await new Promise(r => setTimeout(r, Math.max(delayMs, 200)));
           await sendCommand('ALL_OFF').catch(() => {});
 
         } else {
-          // ── LAN mode: binary WebSocket stream ────────────────────
-          const cascadeFrames = [];
+          // LAN mode: build frame list
+          const testFrames = [];
           for (let bit = 0; bit < totalBits; bit++) {
-            cascadeFrames.push({ ts_ms: bit * delayMs, bits: _cascadeBitsArr(bit) });
+            testFrames.push({ ts_ms: bit * delayMs, bits: getBitsArr(bit) });
           }
-          // Frame tắt tất cả ở cuối
-          cascadeFrames.push({ ts_ms: totalBits * delayMs, bits: new Uint8Array(CHIPS || 10) });
+          testFrames.push({ ts_ms: totalBits * delayMs, bits: new Uint8Array(CHIPS || 10) });
 
-          frames = cascadeFrames;
+          frames = testFrames;
           updateAnimationInfo();
 
           stopAll();
@@ -1382,8 +1424,7 @@
           setTimeout(() => {
             sendStart();
             frames.forEach(f => sendRaw(mkFrame(f.ts_ms, f.bits)));
-            log(`Cascade ${totalBits} frames → ESP32 (LAN)`, 'log-ok');
-            // Show progress bar counting up
+            log(`${modeLabel}: ${totalBits} frames → ESP32 (LAN)`, 'log-ok');
             let step = 0;
             const iv = setInterval(() => {
               step++;
@@ -1394,7 +1435,7 @@
           }, 80);
         }
 
-        log('Cascade test done', 'log-ok');
+        log(`${modeLabel} done`, 'log-ok');
         status.textContent = 'Done ✓';
         fill.style.width = '100%';
         btn.disabled = false;

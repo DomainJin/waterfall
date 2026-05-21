@@ -53,9 +53,9 @@ public:
 
 private:
     // Shift byte without latch (for daisy-chain)
-    // ⚠️ Shift LSB first (bit 0) to match web UI mapping
+    // MSB first: bit 7 shifted first → lands at Q7, bit 0 last → lands at Q0
     void _shiftByteNoLatch(uint8_t val) {
-        for (int i = 0; i < 8; i++) {  // LSB -> MSB (i = 0, 1, 2, ..., 7)
+        for (int i = 7; i >= 0; i--) {  // MSB -> LSB (i = 7, 6, ..., 0)
             digitalWrite(PIN_DS, (val >> i) & 1);
             delayMicroseconds(10);
             digitalWrite(PIN_SHCP, HIGH);
@@ -75,9 +75,8 @@ private:
     }
 
     // Single byte quick shift (for test)
-    // ⚠️ Shift LSB first to match mapping
     void shiftByte(uint8_t val) {
-        for (int i = 0; i < 8; i++) {  // LSB -> MSB
+        for (int i = 7; i >= 0; i--) {  // MSB -> LSB
             digitalWrite(PIN_DS, (val >> i) & 1);
             delayMicroseconds(10);
             digitalWrite(PIN_SHCP, HIGH);
