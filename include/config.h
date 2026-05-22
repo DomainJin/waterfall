@@ -58,6 +58,9 @@
 // ── Watchdog ─────────────────────────────────────────────────
 #define WATCHDOG_MS      5000
 
+// ── Microphone ───────────────────────────────────────────────
+#define MIC_PIN  34   // GPIO34 — ADC input-only, connects to electret mic (+) via 4.7kΩ pull-up
+
 // ── MQTT Cloud (để trống nếu không dùng) ─────────────────────
 // Điền thông tin VPS cloud của bạn vào đây
 #define MQTT_BROKER_HOST  "waterfall.domainjin.io.vn"

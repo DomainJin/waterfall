@@ -532,6 +532,35 @@
           </div>
         </div>
 
+        <!-- ── Mode Selector ── -->
+        <div class="sec">
+          <div class="sec-title">Mode</div>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <button class="btn btn-primary btn-sm" id="mode-btn-stream"
+                    onclick="setMode('stream')" style="flex:1">Stream</button>
+            <button class="btn btn-ghost btn-sm" id="mode-btn-sound"
+                    onclick="setMode('sound')" style="flex:1">Sound</button>
+          </div>
+          <div id="sound-opts" style="display:none;">
+            <label style="font-size:11px;color:var(--muted);margin-bottom:4px;display:block;">Pattern</label>
+            <div style="display:flex;gap:4px;margin-bottom:8px;">
+              <button class="btn btn-ghost btn-sm" id="pat-ripple"
+                      onclick="setSoundPattern('ripple')" style="flex:1;font-size:10px;">Ripple</button>
+              <button class="btn btn-ghost btn-sm" id="pat-columns"
+                      onclick="setSoundPattern('columns')" style="flex:1;font-size:10px;">Columns</button>
+              <button class="btn btn-ghost btn-sm" id="pat-wave"
+                      onclick="setSoundPattern('wave')" style="flex:1;font-size:10px;">Wave</button>
+            </div>
+            <label style="font-size:11px;color:var(--muted);">
+              Sensitivity <span id="sens-val">50</span>
+            </label>
+            <input type="range" id="sensitivity" min="0" max="100" value="50"
+                   oninput="document.getElementById('sens-val').textContent=this.value"
+                   onchange="sendSoundConfig()"
+                   style="width:100%;margin-top:4px;accent-color:var(--primary);">
+          </div>
+        </div>
+
         <div class="sec">
           <div class="sec-title collapsible" onclick="toggleSec('scan-body','scan-chev')">
             <span>Scan Network</span>
@@ -1468,6 +1497,45 @@
         }
         document.getElementById("conn-label").textContent = label;
       }
+
+      // ── Sound / Mode helpers ──────────────────────────────────
+      let _currentMode    = 'stream';
+      let _soundPattern   = 'ripple';
+
+      function setMode(mode) {
+        _currentMode = mode;
+        // Update button states
+        document.getElementById('mode-btn-stream').className =
+          mode === 'stream' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+        document.getElementById('mode-btn-sound').className =
+          mode === 'sound'  ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+        document.getElementById('sound-opts').style.display =
+          mode === 'sound' ? '' : 'none';
+        const opts = { mode };
+        if (mode === 'sound') {
+          opts.pattern     = _soundPattern;
+          opts.sensitivity = parseInt(document.getElementById('sensitivity').value);
+        }
+        sendCommand('SET_MODE', opts).catch(e => console.warn('SET_MODE:', e));
+      }
+
+      function setSoundPattern(pattern) {
+        _soundPattern = pattern;
+        ['ripple','columns','wave'].forEach(p => {
+          const btn = document.getElementById('pat-' + p);
+          btn.className = p === pattern ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+          btn.style.fontSize = '10px';
+        });
+        sendSoundConfig();
+      }
+
+      function sendSoundConfig() {
+        if (_currentMode !== 'sound') return;
+        const sensitivity = parseInt(document.getElementById('sensitivity').value);
+        sendCommand('SET_MODE', { mode: 'sound', pattern: _soundPattern, sensitivity })
+          .catch(e => console.warn('sendSoundConfig:', e));
+      }
+      // ─────────────────────────────────────────────────────────
 
       // sendCommand: routes to WebSocket text (LAN) or /api/cmd (MQTT)
       async function sendCommand(cmd, opts = {}) {

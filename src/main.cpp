@@ -10,6 +10,7 @@
 #include "config_server.h"
 #include "ble_config.h"
 #include "mqtt_manager.h"
+#include "sound_mode.h"
 
 // ============================================================
 //  Global objects
@@ -18,6 +19,10 @@ FrameQueue    g_queue;
 ValveDriver   g_valve;
 TcpServer     g_tcp(g_queue, g_valve);
 Scheduler     g_scheduler(g_queue, g_valve, g_tcp);
+SoundMode     g_sound;
+
+enum DeviceMode { MODE_STREAM, MODE_SOUND };
+DeviceMode    g_mode = MODE_STREAM;
 SDManager     g_sd;
 ConfigServer  g_cfg;
 BLEConfig     g_ble;
@@ -65,6 +70,11 @@ void setup() {
     Serial.printf("[SETUP] ✓ Valve driver initialized\n");
     Serial.flush();
 
+    // Setup microphone
+    g_sound.begin(MIC_PIN, g_valve);
+    Serial.printf("[SETUP] ✓ Sound mode initialized (pin %d)\n", MIC_PIN);
+    Serial.flush();
+
     // Setup BLE FIRST (before WiFi to avoid conflicts)
     Serial.printf("\n[SETUP] Initializing BLE...\n");
     Serial.flush();
@@ -92,6 +102,22 @@ void setup() {
     Serial.printf("[SETUP] Starting WebSocket server on port %d...\n", TCP_PORT);
     Serial.flush();
     g_tcp.begin();
+    // Mode switching via WebSocket SET_MODE command
+    g_tcp.onModeChange([](const String& mode, const String& pattern, int sensitivity) {
+        if (mode == "sound") {
+            g_mode = MODE_SOUND;
+            g_sound.setSensitivity((uint8_t)sensitivity);
+            SoundPattern p = SOUND_RIPPLE;
+            if (pattern == "columns") p = SOUND_COLUMNS;
+            else if (pattern == "wave") p = SOUND_WAVE;
+            g_sound.setPattern(p);
+            Serial.printf("[MODE] → SOUND pattern=%s sens=%d\n", pattern.c_str(), sensitivity);
+        } else {
+            g_mode = MODE_STREAM;
+            g_valve.allOff();
+            Serial.println("[MODE] → STREAM");
+        }
+    });
     Serial.printf("[SETUP] ✓ WebSocket server started\n");
     Serial.flush();
     
@@ -212,11 +238,13 @@ void loop() {
     uint32_t loop_start = micros();
     
     // ─────────────────────────────────────────────────────
-    // PRIORITY 1: Scheduler xử lý frame queue + auto-finish
-    // Không gard bởi streaming() — scheduler tự kiểm tra nội bộ
-    // Cho phép drain queue sau khi client disconnect
+    // PRIORITY 1: Valve control — sound mode or stream mode
     // ─────────────────────────────────────────────────────
-    g_scheduler.tick();
+    if (g_mode == MODE_SOUND) {
+        g_sound.tick();
+    } else {
+        g_scheduler.tick();
+    }
     
     // ─────────────────────────────────────────────────────
     // PRIORITY 2: Handle WebSocket communication (events)

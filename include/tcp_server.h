@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebSocketsServer.h>
+#include <functional>
 #include "config.h"
 #include "frame_queue.h"
 #include "valve_driver.h"
@@ -29,6 +30,11 @@ public:
         _ws.begin();
         _ws.onEvent(TcpServer::_staticEvent);
         Serial.printf("[WS] WebSocket server on port %d\n", TCP_PORT);
+    }
+
+    // Register callback for SET_MODE commands: cb(mode, pattern, sensitivity)
+    void onModeChange(std::function<void(const String&, const String&, int)> cb) {
+        _onModeChange = cb;
     }
 
     void tick() { _ws.loop(); }
@@ -73,6 +79,7 @@ private:
     bool             _hasClient  = false;
     uint32_t         _t0         = 0;
     uint32_t         _drainStart = 0;
+    std::function<void(const String&, const String&, int)> _onModeChange;
 
     static const uint16_t RX_BUF_SIZE = FRAME_BYTES * 64;
     uint8_t  _rx[RX_BUF_SIZE];
@@ -107,7 +114,31 @@ private:
             }
             _v.write(bits);
             Serial.printf("[WS] CMD SET %s\n", hex.c_str());
+        } else if (json.indexOf("SET_MODE") >= 0) {
+            // {"cmd":"SET_MODE","mode":"sound","pattern":"ripple","sensitivity":50}
+            // {"cmd":"SET_MODE","mode":"stream"}
+            if (!_onModeChange) return;
+            // parse mode
+            String mode = _parseStrField(json, "mode");
+            String pattern = _parseStrField(json, "pattern");
+            int sensitivity = 50;
+            int sidx = json.indexOf("\"sensitivity\":");
+            if (sidx >= 0) sensitivity = json.substring(sidx + 14).toInt();
+            Serial.printf("[WS] CMD SET_MODE mode=%s pattern=%s sens=%d\n",
+                          mode.c_str(), pattern.c_str(), sensitivity);
+            _onModeChange(mode, pattern, sensitivity);
         }
+    }
+
+    // Extract string value for a JSON key: "key":"value"
+    String _parseStrField(const String& json, const char* key) {
+        String searchKey = String("\"") + key + "\":\"";
+        int idx = json.indexOf(searchKey);
+        if (idx < 0) return "";
+        int start = idx + searchKey.length();
+        int end   = json.indexOf('"', start);
+        if (end <= start) return "";
+        return json.substring(start, end);
     }
 
     static void _staticEvent(uint8_t num, WStype_t type,
