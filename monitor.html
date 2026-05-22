@@ -80,6 +80,42 @@
             </div>
         </div>
 
+        <!-- Sound Sensor Monitor -->
+        <div class="card card-dark">
+            <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <h2>🎙️ SOUND SENSOR</h2>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <div id="beat-dot" style="width:11px;height:11px;border-radius:50%;background:#444;transition:background 0.08s,box-shadow 0.08s;flex-shrink:0;"></div>
+                    <span id="beat-label" style="font-size:10px;color:var(--muted);min-width:38px;">idle</span>
+                </div>
+                <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+                    <input type="text" id="snd-ip" placeholder="ESP32 IP" value="192.168.1.241"
+                           style="padding:4px 8px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:inherit;border-radius:4px;font-size:11px;width:130px;">
+                    <button id="snd-btn" onclick="toggleSoundConnect()"
+                            class="btn btn-primary btn-sm">Connect</button>
+                </div>
+            </div>
+            <div class="card-content">
+                <!-- Metrics row -->
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+                    <div class="status-panel">
+                        <h3>Amplitude</h3>
+                        <p id="snd-amplitude" style="font-size:22px;font-weight:700;color:#3498db;margin:0;">—</p>
+                    </div>
+                    <div class="status-panel">
+                        <h3>Level (0–255)</h3>
+                        <p id="snd-norm" style="font-size:22px;font-weight:700;color:#27ae60;margin:0;">—</p>
+                    </div>
+                    <div class="status-panel">
+                        <h3>Beats / min</h3>
+                        <p id="snd-bpm" style="font-size:22px;font-weight:700;color:#e67e22;margin:0;">—</p>
+                    </div>
+                </div>
+                <!-- Rolling chart -->
+                <canvas id="sound-chart" height="80"></canvas>
+            </div>
+        </div>
+
         <!-- Network Stats -->
         <div class="card card-cream">
             <div class="card-header">
@@ -246,11 +282,161 @@
             });
         }
 
+        // ── Sound sensor chart ───────────────────────────────────
+        const SND_POINTS = 120;   // ~4s at 30fps
+        let soundChart = null;
+        let soundWs    = null;
+        let sndConnected = false;
+        const sndAmpl  = new Array(SND_POINTS).fill(0);
+        const sndNorm  = new Array(SND_POINTS).fill(0);
+        const sndBeat  = new Array(SND_POINTS).fill(null);  // sparse for markers
+        let beatTimes  = [];
+
+        function initSoundChart() {
+            const ctx = document.getElementById('sound-chart').getContext('2d');
+            soundChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: SND_POINTS}, (_, i) => i),
+                    datasets: [
+                        {
+                            label: 'Amplitude',
+                            data: sndAmpl,
+                            borderColor: '#3498db',
+                            backgroundColor: 'rgba(52,152,219,0.12)',
+                            borderWidth: 1.5,
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 0,
+                        },
+                        {
+                            label: 'Level',
+                            data: sndNorm,
+                            borderColor: '#27ae60',
+                            backgroundColor: 'rgba(39,174,96,0.06)',
+                            borderWidth: 1,
+                            fill: false,
+                            tension: 0.35,
+                            pointRadius: 0,
+                            yAxisID: 'y1',
+                        },
+                        {
+                            label: 'Beat',
+                            data: sndBeat,
+                            borderColor: 'rgba(231,76,60,0)',
+                            backgroundColor: 'rgba(231,76,60,0.85)',
+                            pointRadius: 5,
+                            pointStyle: 'circle',
+                            showLine: false,
+                            yAxisID: 'y1',
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    animation: false,
+                    plugins: {
+                        legend: { labels: { color: '#ccc', font: { size: 11 } } }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: {
+                            beginAtZero: true,
+                            suggestedMax: 200,
+                            title: { display: true, text: 'Amplitude', color: '#3498db' },
+                            ticks: { color: '#888' },
+                            grid:  { color: 'rgba(255,255,255,0.05)' }
+                        },
+                        y1: {
+                            beginAtZero: true,
+                            max: 255,
+                            position: 'right',
+                            title: { display: true, text: 'Level', color: '#27ae60' },
+                            ticks: { color: '#888' },
+                            grid:  { drawOnChartArea: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        function toggleSoundConnect() {
+            sndConnected ? disconnectSound() : connectSound();
+        }
+
+        function connectSound() {
+            const ip = document.getElementById('snd-ip').value.trim();
+            if (!ip) return;
+            soundWs = new WebSocket(`ws://${ip}:3333`);
+            soundWs.binaryType = 'arraybuffer';
+            soundWs.onopen = () => {
+                sndConnected = true;
+                const btn = document.getElementById('snd-btn');
+                btn.textContent = 'Disconnect';
+                btn.className = 'btn btn-danger btn-sm';
+            };
+            soundWs.onmessage = (e) => {
+                if (typeof e.data !== 'string') return;
+                try {
+                    const d = JSON.parse(e.data);
+                    if (d.type === 'sound') pushSoundSample(d.a, d.n, !!d.b);
+                } catch {}
+            };
+            soundWs.onclose = () => {
+                sndConnected = false;
+                const btn = document.getElementById('snd-btn');
+                btn.textContent = 'Connect';
+                btn.className = 'btn btn-primary btn-sm';
+                document.getElementById('beat-label').textContent = 'idle';
+                document.getElementById('beat-dot').style.cssText =
+                    'width:11px;height:11px;border-radius:50%;background:#444;transition:background 0.08s,box-shadow 0.08s;flex-shrink:0;';
+            };
+        }
+
+        function disconnectSound() {
+            if (soundWs) { soundWs.close(); soundWs = null; }
+        }
+
+        function pushSoundSample(amplitude, norm, beat) {
+            sndAmpl.push(amplitude); sndAmpl.shift();
+            sndNorm.push(norm);      sndNorm.shift();
+            sndBeat.push(beat ? norm : null); sndBeat.shift();
+
+            document.getElementById('snd-amplitude').textContent = amplitude;
+            document.getElementById('snd-norm').textContent = norm;
+
+            if (beat) {
+                const now = Date.now();
+                beatTimes.push(now);
+                beatTimes = beatTimes.filter(t => now - t < 10000);
+                document.getElementById('snd-bpm').textContent =
+                    Math.round(beatTimes.length * 6);
+
+                const dot = document.getElementById('beat-dot');
+                dot.style.background = '#e74c3c';
+                dot.style.boxShadow = '0 0 6px #e74c3c';
+                document.getElementById('beat-label').textContent = 'BEAT!';
+                setTimeout(() => {
+                    dot.style.background = '#555';
+                    dot.style.boxShadow = 'none';
+                    document.getElementById('beat-label').textContent = 'no beat';
+                }, 150);
+            }
+
+            soundChart.update('none');  // skip animation for performance
+        }
+        // ─────────────────────────────────────────────────────────
+
         // Initialize
         window.addEventListener('DOMContentLoaded', function() {
             updateDeviceInfo();
             initChart();
-            
+            initSoundChart();
+
+            // Pre-fill IP from localStorage if available
+            const savedIp = localStorage.getItem('selected_esp_ip');
+            if (savedIp) document.getElementById('snd-ip').value = savedIp;
+
             // Update every 1 second
             setInterval(updateDeviceStatus, 1000);
         });

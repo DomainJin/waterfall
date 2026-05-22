@@ -118,9 +118,18 @@ void setup() {
             Serial.println("[MODE] → STREAM");
         }
     });
+    // Broadcast sound telemetry to connected clients
+    g_sound.onTick([](int amplitude, int norm, bool beat) {
+        if (!g_tcp.hasClient()) return;
+        char buf[64];
+        snprintf(buf, sizeof(buf),
+                 "{\"type\":\"sound\",\"a\":%d,\"n\":%d,\"b\":%d}",
+                 amplitude, norm, beat ? 1 : 0);
+        g_tcp.broadcastJSON(buf);
+    });
     Serial.printf("[SETUP] ✓ WebSocket server started\n");
     Serial.flush();
-    
+
     // Setup UDP Config server
     Serial.printf("[SETUP] Starting UDP Config server...\n");
     Serial.flush();

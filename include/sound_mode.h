@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <functional>
 #include <math.h>
 #include "valve_driver.h"
 #include "config.h"
@@ -28,6 +29,9 @@ public:
 
     // sensitivity 0–100: higher = reacts to quieter sounds
     void setSensitivity(uint8_t s) { _sensitivity = s; }
+
+    // Callback fired each tick: cb(amplitude, norm 0-255, beat)
+    void onTick(std::function<void(int, int, bool)> cb) { _onTick = cb; }
 
     void tick() {
         uint32_t now = millis();
@@ -59,6 +63,8 @@ public:
         }
 
         _v->write(_bits);
+
+        if (_onTick) _onTick(amplitude, norm, beat);
     }
 
 private:
@@ -66,6 +72,7 @@ private:
     ValveDriver* _v            = nullptr;
     SoundPattern _pattern      = SOUND_RIPPLE;
     uint8_t      _sensitivity  = 50;
+    std::function<void(int, int, bool)> _onTick;
     uint32_t     _lastUpdate   = 0;
     uint32_t     _lastBeat     = 0;
     int          _baseline     = 2048;

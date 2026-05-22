@@ -37,6 +37,11 @@ public:
         _onModeChange = cb;
     }
 
+    // Broadcast a JSON string to all connected WebSocket clients
+    void broadcastJSON(const String& json) {
+        _ws.broadcastTXT(json);
+    }
+
     void tick() { _ws.loop(); }
 
     bool     streaming() const { return _streaming; }
