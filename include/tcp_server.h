@@ -39,7 +39,8 @@ public:
 
     // Broadcast a JSON string to all connected WebSocket clients
     void broadcastJSON(const String& json) {
-        _ws.broadcastTXT(json);
+        String s(json);
+        _ws.broadcastTXT(s);
     }
 
     void tick() { _ws.loop(); }

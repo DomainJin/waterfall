@@ -33,6 +33,9 @@ public:
     // Callback fired each tick: cb(amplitude, norm 0-255, beat)
     void onTick(std::function<void(int, int, bool)> cb) { _onTick = cb; }
 
+    // When false: still reads ADC and logs, but does NOT write valves or fire onTick
+    void setValveOutput(bool enabled) { _valveOutput = enabled; }
+
     void tick() {
         uint32_t now = millis();
         if (now - _lastUpdate < 33) return;  // ~30 fps
@@ -56,15 +59,18 @@ public:
         bool beat = (amplitude > threshold) && ((int)(now - _lastBeat) > 200);
         if (beat) _lastBeat = now;
 
+        _log(amplitude, norm, threshold, beat);
+
         switch (_pattern) {
             case SOUND_RIPPLE:  _doRipple(norm);       break;
             case SOUND_COLUMNS: _doColumns(norm, beat); break;
             case SOUND_WAVE:    _doWave(norm);          break;
         }
 
-        _v->write(_bits);
-
-        if (_onTick) _onTick(amplitude, norm, beat);
+        if (_valveOutput) {
+            _v->write(_bits);
+            if (_onTick) _onTick(amplitude, norm, beat);
+        }
     }
 
 private:
@@ -72,13 +78,39 @@ private:
     ValveDriver* _v            = nullptr;
     SoundPattern _pattern      = SOUND_RIPPLE;
     uint8_t      _sensitivity  = 50;
+    bool         _valveOutput  = false;
     std::function<void(int, int, bool)> _onTick;
     uint32_t     _lastUpdate   = 0;
     uint32_t     _lastBeat     = 0;
+    uint32_t     _lastLog      = 0;
     int          _baseline     = 2048;
     int          _peakAmplitude = 20;
     uint8_t      _bits[NUM_BOARDS] = {};
     float        _wavePhase    = 0.0f;
+
+    void _log(int amplitude, int norm, int threshold, bool beat) {
+        uint32_t now = millis();
+        // Always log on beat; otherwise log every 500ms
+        if (!beat && (now - _lastLog < 500)) return;
+        _lastLog = now;
+
+        // ASCII bar: 20 chars wide, filled proportional to norm/255
+        char bar[21];
+        int filled = norm * 20 / 255;
+        for (int i = 0; i < 20; i++) bar[i] = (i < filled) ? '#' : '.';
+        bar[20] = '\0';
+
+        const char* patName = (_pattern == SOUND_RIPPLE)  ? "ripple"  :
+                              (_pattern == SOUND_COLUMNS) ? "columns" : "wave";
+
+        if (beat) {
+            Serial.printf("[SND] *** BEAT *** amp=%-4d norm=%-3d peak=%-4d thr=%-3d [%s] pat=%s\n",
+                          amplitude, norm, _peakAmplitude, threshold, bar, patName);
+        } else {
+            Serial.printf("[SND] amp=%-4d norm=%-3d peak=%-4d thr=%-3d [%s] pat=%s\n",
+                          amplitude, norm, _peakAmplitude, threshold, bar, patName);
+        }
+    }
 
     // Fill valves left→right proportional to volume (VU meter)
     void _doRipple(int norm) {

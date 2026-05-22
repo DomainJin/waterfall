@@ -248,10 +248,12 @@ void loop() {
     
     // ─────────────────────────────────────────────────────
     // PRIORITY 1: Valve control — sound mode or stream mode
+    // Sound tick always runs (ADC read + log); valve output
+    // only when MODE_SOUND is active.
     // ─────────────────────────────────────────────────────
-    if (g_mode == MODE_SOUND) {
-        g_sound.tick();
-    } else {
+    g_sound.setValveOutput(g_mode == MODE_SOUND);
+    g_sound.tick();
+    if (g_mode == MODE_STREAM) {
         g_scheduler.tick();
     }
     
