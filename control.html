@@ -1254,10 +1254,76 @@
       let liveValveBits = null;  // Uint8Array(CHIPS) | null
 
       // Live simulation (sound / clock modes)
-      let liveColIv       = null;   // Array<{vOpen,vClose}[]> — written by _onLiveValves
-      let liveSimRunning  = false;
+      let liveColIv        = null;   // Array<{vOpen,vClose}[]> — written by _onLiveValves
+      let liveSimRunning   = false;
       let liveSimStartTime = 0;
-      let livePrevBits    = null;   // Uint8Array — previous frame for edge detection
+      let livePrevBits     = null;   // Uint8Array — previous frame for edge detection
+      let _clockSimTimer   = null;   // setInterval handle for local clock driver
+
+      // Convert packed-bits row (Uint8Array, MSB-first) → per-valve boolean array
+      function _bitsToPixelRow(bits) {
+        const row = new Array(VALVES);
+        for (let v = 0; v < VALVES; v++) row[v] = (bits[v >> 3] >> (7 - (v & 7))) & 1;
+        return row;
+      }
+
+      // ── JS clock font (identical to firmware clock_mode.h) ───
+      const _CLOCK_FONT = [
+        [0x0E,0x11,0x11,0x11,0x11,0x11,0x0E], // 0
+        [0x04,0x0C,0x04,0x04,0x04,0x04,0x0E], // 1
+        [0x0E,0x11,0x01,0x06,0x08,0x10,0x1F], // 2
+        [0x0E,0x11,0x01,0x06,0x01,0x11,0x0E], // 3
+        [0x02,0x06,0x0A,0x12,0x1F,0x02,0x02], // 4
+        [0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E], // 5
+        [0x0E,0x10,0x10,0x1E,0x11,0x11,0x0E], // 6
+        [0x1F,0x01,0x02,0x04,0x08,0x08,0x08], // 7
+        [0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E], // 8
+        [0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C], // 9
+        [0x00,0x04,0x04,0x00,0x04,0x04,0x00], // :
+        [0x00,0x00,0x1F,0x00,0x1F,0x00,0x00], // - (no sync)
+      ];
+
+      function _renderClockRow(row, h, m) {
+        const FONT_W = 5, SCALE = 2, CHAR_W = FONT_W * SCALE, GAP = 2;
+        const xOff  = Math.floor((VALVES - (5 * CHAR_W + 4 * GAP)) / 2);
+        const chars = [Math.floor(h / 10), h % 10, 10, Math.floor(m / 10), m % 10];
+        const bits  = new Uint8Array(CHIPS);
+        let x = xOff;
+        for (const c of chars) {
+          const fRow = _CLOCK_FONT[c][row];
+          for (let px = 0; px < FONT_W; px++) {
+            if ((fRow >> (FONT_W - 1 - px)) & 1) {
+              for (let s = 0; s < SCALE; s++) {
+                const v = x + px * SCALE + s;
+                if (v >= 0 && v < VALVES) bits[v >> 3] |= 1 << (7 - (v & 7));
+              }
+            }
+          }
+          x += CHAR_W + GAP;
+        }
+        return bits;
+      }
+
+      // Drive liveColIv with local clock — works in LAN and MQTT modes
+      function startClockLocalSim(rowMs) {
+        if (_clockSimTimer) { clearInterval(_clockSimTimer); _clockSimTimer = null; }
+        if (!liveSimRunning) startLiveSimulation();
+        const FONT_H = 7, BLANK = 4;
+        let rowIdx = 0;
+        _clockSimTimer = setInterval(() => {
+          if (!liveSimRunning) { clearInterval(_clockSimTimer); _clockSimTimer = null; return; }
+          if (rowIdx < FONT_H) {
+            const t   = new Date();
+            const bits = _renderClockRow(rowIdx, t.getHours(), t.getMinutes());
+            const elapsed = performance.now() - liveSimStartTime;
+            for (let v = 0; v < VALVES; v++) {
+              if ((bits[v >> 3] >> (7 - (v & 7))) & 1)
+                liveColIv[v].push({ vOpen: elapsed, vClose: elapsed + rowMs * 0.85 });
+            }
+          }
+          rowIdx = (rowIdx + 1) % (FONT_H + BLANK);
+        }, rowMs);
+      }
 
       function _onLiveValves(hexStr) {
         if (!liveValveBits) liveValveBits = new Uint8Array(CHIPS);
@@ -1627,12 +1693,15 @@
         const sensitivity = parseInt(document.getElementById('clock-speed').value);
         sendCommand('SET_MODE', { mode: 'clock', sensitivity })
           .catch(e => console.warn('runClock:', e));
-        startLiveSimulation();
+        // rowMs mirrors firmware: map(sensitivity, 0,100, 200,20)
+        const rowMs = Math.round(200 - sensitivity * 1.8);
+        startClockLocalSim(rowMs);
       }
 
       function stopClock() {
         sendCommand('SET_MODE', { mode: 'stream' })
           .catch(e => console.warn('stopClock:', e));
+        if (_clockSimTimer) { clearInterval(_clockSimTimer); _clockSimTimer = null; }
         stopLiveSimulation();
         _currentMode = 'stream';
         ['stream','sound','clock'].forEach(m => {
@@ -2391,10 +2460,15 @@
         const frameMs  = Math.max(50, Math.min(500, parseInt(document.getElementById("pattern-frame-ms").value) || 80));
         const patternRows = generatePattern(type, numRows, VALVES, density);
 
+        // Populate pixelRows so simulation works for both LAN and MQTT modes
+        pixelRows = patternRows.map(_bitsToPixelRow);
+        document.getElementById("adv").value = frameMs;
+
         frames = [];
         patternRows.forEach((row, idx) => frames.push({ ts_ms: idx * frameMs, bits: row }));
         frames.push({ ts_ms: frames.length * frameMs, bits: new Uint8Array(CHIPS) });
 
+        renderPreview();
         log(`Pattern: ${type} — ${numRows} rows × ${frameMs}ms = ${(numRows * frameMs / 1000).toFixed(1)}s`, "log-ok");
         updateAnimationInfo();
 
@@ -2423,17 +2497,20 @@
 
         const patternRows = generatePattern(type, numRows, VALVES, density);
 
+        // Convert packed bits → pixelRows so startSimulation() can use them
+        pixelRows = patternRows.map(_bitsToPixelRow);
+        // Sync row-interval slider to frameMs for correct timing
+        document.getElementById("adv").value = frameMs;
+
         frames = [];
         patternRows.forEach((patternRow, rowIdx) => {
           frames.push({ ts_ms: rowIdx * frameMs, bits: patternRow });
         });
-        frames.push({
-          ts_ms: frames.length * frameMs,
-          bits: new Uint8Array(CHIPS),
-        });
+        frames.push({ ts_ms: frames.length * frameMs, bits: new Uint8Array(CHIPS) });
 
+        renderPreview();
         stopAll();
-        log(`Simulating ${type} pattern`, "log-ok");
+        log(`Simulating ${type} pattern (${numRows} rows × ${frameMs}ms)`, "log-ok");
         updateAnimationInfo();
         startSimulation();
       }
@@ -2578,6 +2655,7 @@
       function stopLiveSimulation() {
         liveSimRunning = false;
         liveColIv = null; livePrevBits = null;
+        if (_clockSimTimer) { clearInterval(_clockSimTimer); _clockSimTimer = null; }
         if (simCtx && simCanvas) {
           simCtx.fillStyle = "#010d1a";
           simCtx.fillRect(0, 0, simCanvas.width, simCanvas.height);
