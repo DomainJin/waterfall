@@ -79,12 +79,12 @@ void setup() {
         _lastBcast = now;
         // Build compact JSON: {"type":"valves","bits":"AABB..."}
         char buf[32 + NUM_BOARDS * 2];
-        static const char HEX[] = "0123456789ABCDEF";
+        static const char NYBBLE[] = "0123456789ABCDEF";
         int p = 0;
         memcpy(buf + p, "{\"type\":\"valves\",\"bits\":\"", 24); p += 24;
         for (int i = 0; i < n; i++) {
-            buf[p++] = HEX[bits[i] >> 4];
-            buf[p++] = HEX[bits[i] & 0xF];
+            buf[p++] = NYBBLE[bits[i] >> 4];
+            buf[p++] = NYBBLE[bits[i] & 0xF];
         }
         buf[p++] = '"'; buf[p++] = '}'; buf[p] = '\0';
         g_tcp.broadcastJSON(String(buf));

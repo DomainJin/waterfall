@@ -555,6 +555,10 @@
             <div style="margin-top:6px;font-size:10px;color:var(--muted);">
               Slide ◀ slower rows (taller text) &nbsp;|&nbsp; ▶ faster rows (shorter text)
             </div>
+            <div style="display:flex;gap:6px;margin-top:8px;">
+              <button class="btn btn-primary btn-sm" onclick="runClock()" style="flex:1">▶ Run</button>
+              <button class="btn btn-ghost btn-sm"   onclick="stopClock()" style="flex:1">■ Stop</button>
+            </div>
           </div>
           <div id="sound-opts" style="display:none;">
             <label style="font-size:11px;color:var(--muted);margin-bottom:4px;display:block;">Pattern</label>
@@ -1249,6 +1253,12 @@
       // ── Live valve state (from ESP32 broadcast) ──────────────
       let liveValveBits = null;  // Uint8Array(CHIPS) | null
 
+      // Live simulation (sound / clock modes)
+      let liveColIv       = null;   // Array<{vOpen,vClose}[]> — written by _onLiveValves
+      let liveSimRunning  = false;
+      let liveSimStartTime = 0;
+      let livePrevBits    = null;   // Uint8Array — previous frame for edge detection
+
       function _onLiveValves(hexStr) {
         if (!liveValveBits) liveValveBits = new Uint8Array(CHIPS);
         for (let i = 0; i < CHIPS; i++) {
@@ -1262,6 +1272,26 @@
         document.getElementById('live-active-count').textContent = cnt + ' / ' + VALVES;
         document.getElementById('s-active').textContent = cnt;
         _renderLiveBar();
+
+        // Auto-start live sim for sound mode; feed intervals for all live modes
+        if (_currentMode === 'sound' && !liveSimRunning) startLiveSimulation();
+        if (liveColIv && liveSimRunning) {
+          const elapsed = performance.now() - liveSimStartTime;
+          for (let v = 0; v < VALVES; v++) {
+            const on  = (liveValveBits[v >> 3] >> (7 - (v & 7))) & 1;
+            const was = livePrevBits ? (livePrevBits[v >> 3] >> (7 - (v & 7))) & 1 : 0;
+            if (on && !was) {
+              liveColIv[v].push({ vOpen: elapsed, vClose: Infinity });
+            } else if (!on && was) {
+              const ivs = liveColIv[v];
+              for (let k = ivs.length - 1; k >= 0; k--) {
+                if (ivs[k].vClose === Infinity) { ivs[k].vClose = elapsed; break; }
+              }
+            }
+          }
+          if (!livePrevBits) livePrevBits = new Uint8Array(CHIPS);
+          livePrevBits.set(liveValveBits);
+        }
       }
 
       function _renderLiveBar() {
@@ -1573,6 +1603,9 @@
           mode === 'sound' ? '' : 'none';
         document.getElementById('clock-opts').style.display =
           mode === 'clock' ? '' : 'none';
+        // Stop live sim when returning to stream mode
+        if (mode === 'stream' && liveSimRunning) stopLiveSimulation();
+
         const opts = { mode };
         if (mode === 'sound') {
           opts.pattern     = _soundPattern;
@@ -1588,6 +1621,26 @@
         const sensitivity = parseInt(document.getElementById('clock-speed').value);
         sendCommand('SET_MODE', { mode: 'clock', sensitivity })
           .catch(e => console.warn('sendClockConfig:', e));
+      }
+
+      function runClock() {
+        const sensitivity = parseInt(document.getElementById('clock-speed').value);
+        sendCommand('SET_MODE', { mode: 'clock', sensitivity })
+          .catch(e => console.warn('runClock:', e));
+        startLiveSimulation();
+      }
+
+      function stopClock() {
+        sendCommand('SET_MODE', { mode: 'stream' })
+          .catch(e => console.warn('stopClock:', e));
+        stopLiveSimulation();
+        _currentMode = 'stream';
+        ['stream','sound','clock'].forEach(m => {
+          const btn = document.getElementById('mode-btn-' + m);
+          if (btn) btn.className = m === 'stream' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+        });
+        document.getElementById('clock-opts').style.display = 'none';
+        document.getElementById('sound-opts').style.display = 'none';
       }
 
       function setSoundPattern(pattern) {
@@ -2432,6 +2485,108 @@
         );
         log("Stopped", "log-warn");
       }
+
+      // ── Live Simulation (sound / clock) ─────────────────────
+      function startLiveSimulation() {
+        if (!simCanvas) initSim();
+        simRunning = false;  // stop image-based sim if running
+        liveColIv      = Array.from({ length: VALVES }, () => []);
+        livePrevBits   = new Uint8Array(CHIPS);
+        liveSimRunning = true;
+        liveSimStartTime = performance.now();
+
+        const h_cm = getH();
+        const tfall = Math.sqrt((2 * h_cm) / G) * 1000;
+        let lastFpsTime = liveSimStartTime, fpsCount = 0, fps = 0;
+
+        function yOf(t) { const f = t / tfall; return f * f * simCanvas.height; }
+
+        function liveTick(now) {
+          if (!liveSimRunning) return;
+          const elapsed = now - liveSimStartTime;
+          const W = simCanvas.width  || simCanvas.offsetWidth  || 800;
+          const H = simCanvas.height || simCanvas.offsetHeight || 400;
+          const colW  = W / VALVES;
+          const hw    = Math.max(1.5, colW * 0.32);
+          const dropR = Math.max(2,   colW * 0.44);
+          const ctx   = simCtx;
+
+          ctx.fillStyle = "#010d1a"; ctx.fillRect(0, 0, W, H);
+          // grid
+          ctx.strokeStyle = "rgba(0,55,90,0.22)"; ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          for (let c = 1; c < VALVES; c++) { ctx.moveTo(c * colW, 8); ctx.lineTo(c * colW, H); }
+          ctx.stroke();
+          ctx.fillStyle = "#010d1a"; ctx.fillRect(0, 0, W, 8);
+
+          let activeCols = 0;
+          for (let col = 0; col < VALVES; col++) {
+            // prune intervals whose water has fully passed the bottom
+            liveColIv[col] = liveColIv[col].filter(
+              iv => (elapsed - Math.max(iv.vClose, iv.vOpen)) < tfall * 1.4
+            );
+            const cx = col * colW + colW * 0.5, x0 = cx - hw, sw = hw * 2;
+            for (const iv of liveColIv[col]) {
+              const tFront = elapsed - iv.vOpen;
+              const tTail  = iv.vClose === Infinity ? -1 : elapsed - iv.vClose;
+              if (tFront <= 0) continue;
+              const yFront = yOf(tFront);
+              const yTail  = tTail <= 0 ? 0 : yOf(tTail);
+              if (yTail >= H + dropR * 3) continue;
+              if (tTail <= 0 && yFront >= 0 && yFront < H) {
+                activeCols++;
+                ctx.fillStyle = "#00ccff";
+                ctx.fillRect(col * colW, 0, colW, 7);
+              }
+              const yTop = Math.max(8, Math.min(yTail, H));
+              const yBot = Math.min(H, yFront - dropR * 0.5);
+              if (yBot > yTop + 0.5) {
+                const sH = yBot - yTop;
+                ctx.fillStyle = "rgba(190,240,255,0.95)";
+                ctx.fillRect(x0, yTop, sw, sH * 0.25);
+                ctx.fillStyle = "rgba(0,175,240,0.90)";
+                ctx.fillRect(x0, yTop + sH * 0.25, sw, sH * 0.75);
+              }
+              if (yFront < H && yFront > 8) {
+                ctx.fillStyle = "rgba(100,230,255,0.95)";
+                ctx.beginPath(); ctx.arc(cx, yFront, dropR, 0, Math.PI * 2); ctx.fill();
+              }
+              if (tTail >= 0 && tTail < 300) {
+                const sR = (tTail / 300) * colW * 2.5;
+                ctx.strokeStyle = `rgba(0,200,255,${1 - tTail / 300})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.arc(cx, H * 0.97, sR, 0, Math.PI * 2); ctx.stroke();
+              }
+            }
+          }
+          fpsCount++;
+          if (fpsCount % 4 === 0) {
+            const dt = now - lastFpsTime;
+            if (dt > 0) fps = Math.round(4000 / dt);
+            lastFpsTime = now;
+            document.getElementById("s-active").textContent = activeCols;
+            document.getElementById("s-fps").textContent    = fps;
+            document.getElementById("s-row").textContent    = "LIVE";
+            document.getElementById("s-time").textContent   = (elapsed / 1000).toFixed(1) + "s";
+          }
+          requestAnimationFrame(liveTick);
+        }
+        requestAnimationFrame(liveTick);
+        log("Live simulation started", "log-ok");
+      }
+
+      function stopLiveSimulation() {
+        liveSimRunning = false;
+        liveColIv = null; livePrevBits = null;
+        if (simCtx && simCanvas) {
+          simCtx.fillStyle = "#010d1a";
+          simCtx.fillRect(0, 0, simCanvas.width, simCanvas.height);
+        }
+        ["s-active","s-fps","s-row","s-time"].forEach(id =>
+          document.getElementById(id).textContent = "—"
+        );
+      }
+      // ─────────────────────────────────────────────────────────
 
       // ── Simulation ──────────────────────────────────────────
       function initSim() {
