@@ -47,6 +47,18 @@
             </div>
         </div>
 
+        <!-- Live Valve State — driven by ESP32 broadcast -->
+        <div class="card card-dark">
+            <div class="card-header" style="display:flex;align-items:center;gap:10px;">
+                <h2>🟢 LIVE VALVE STATE</h2>
+                <span id="live-valve-count" style="font-size:12px;color:var(--muted);margin-left:auto;">— / 80 open</span>
+            </div>
+            <div class="card-content" style="padding-top:8px;">
+                <canvas id="live-valve-grid" height="24"
+                        style="width:100%;display:block;background:#010d1a;border-radius:4px;"></canvas>
+            </div>
+        </div>
+
         <!-- Device Status -->
         <div class="card">
             <div class="card-header">
@@ -379,7 +391,8 @@
                 if (typeof e.data !== 'string') return;
                 try {
                     const d = JSON.parse(e.data);
-                    if (d.type === 'sound') pushSoundSample(d.a, d.n, !!d.b);
+                    if (d.type === 'sound')  pushSoundSample(d.a, d.n, !!d.b);
+                    if (d.type === 'valves') updateLiveValves(d.bits);
                 } catch {}
             };
             soundWs.onclose = () => {
@@ -424,6 +437,49 @@
             }
 
             soundChart.update('none');  // skip animation for performance
+        }
+        // ─────────────────────────────────────────────────────────
+
+        // ── Live valve state (from ESP32 broadcastJSON) ──────────
+        const LIVE_BOARDS  = 10;
+        const LIVE_VALVES  = LIVE_BOARDS * 8;
+        let liveValveBytes = new Uint8Array(LIVE_BOARDS);
+
+        function updateLiveValves(hexStr) {
+            for (let i = 0; i < LIVE_BOARDS; i++) {
+                liveValveBytes[i] = parseInt(hexStr.slice(i * 2, i * 2 + 2), 16) || 0;
+            }
+            // Count open valves (MSB-first: bit7 = leftmost valve in board)
+            let cnt = 0;
+            for (let v = 0; v < LIVE_VALVES; v++) {
+                if ((liveValveBytes[v >> 3] >> (7 - (v & 7))) & 1) cnt++;
+            }
+            document.getElementById('active-valves').textContent = cnt;
+            document.getElementById('live-valve-count').textContent = cnt + ' / ' + LIVE_VALVES + ' open';
+            _drawValveGrid();
+        }
+
+        function _drawValveGrid() {
+            const canvas = document.getElementById('live-valve-grid');
+            if (!canvas) return;
+            const W = canvas.offsetWidth || canvas.parentElement.clientWidth || 600;
+            canvas.width = W;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#010d1a';
+            ctx.fillRect(0, 0, W, 24);
+            const colW = W / LIVE_VALVES;
+            for (let v = 0; v < LIVE_VALVES; v++) {
+                const on = (liveValveBytes[v >> 3] >> (7 - (v & 7))) & 1;
+                ctx.fillStyle = on ? '#00ff9d' : '#1a2a3a';
+                ctx.fillRect(Math.round(v * colW), 2, Math.max(1, Math.ceil(colW) - 1), 20);
+            }
+            // Board dividers
+            ctx.strokeStyle = '#010d1a';
+            ctx.lineWidth = 1;
+            for (let b = 1; b < LIVE_BOARDS; b++) {
+                const x = Math.round(b * 8 * colW);
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 24); ctx.stroke();
+            }
         }
         // ─────────────────────────────────────────────────────────
 

@@ -58,6 +58,11 @@
 // ── Watchdog ─────────────────────────────────────────────────
 #define WATCHDOG_MS      5000
 
+// ── NTP Time ─────────────────────────────────────────────────
+#define NTP_SERVER            "pool.ntp.org"
+#define NTP_GMT_OFFSET_SEC    (7 * 3600)   // Vietnam UTC+7
+#define NTP_DAYLIGHT_OFFSET   0
+
 // ── Microphone ───────────────────────────────────────────────
 #define MIC_PIN  34   // GPIO34 — ADC input-only, connects to electret mic (+) via 4.7kΩ pull-up
 

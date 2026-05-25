@@ -59,7 +59,7 @@ public:
         bool beat = (amplitude > threshold) && ((int)(now - _lastBeat) > 200);
         if (beat) _lastBeat = now;
 
-        _log(amplitude, norm, threshold, beat);
+        // _log(amplitude, norm, threshold, beat);  // uncomment to debug mic
 
         switch (_pattern) {
             case SOUND_RIPPLE:  _doRipple(norm);       break;

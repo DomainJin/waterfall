@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <functional>
 #include "config.h"
 
 class ValveDriver {
@@ -16,16 +17,21 @@ public:
         allOff();
     }
 
+    // Register a callback fired after every hardware write: cb(bits, NUM_BOARDS)
+    // Used for telemetry (e.g., WebSocket broadcast) — keep the callback fast.
+    void setWriteCallback(std::function<void(const uint8_t*, int)> cb) {
+        _onWrite = cb;
+    }
+
     // Send bits array from frame (1 byte per board)
     // Daisy-chain: shift all bytes first, then latch once
     // ⚠️ NO Serial.printf here — must stay non-blocking!
     void write(const uint8_t* bits) {
-        // Shift all boards sequentially (no latch between them)
         for (int i = 0; i < NUM_BOARDS; i++) {
             _shiftByteNoLatch(bits[i]);
         }
-        // Latch once for all boards
         _latch();
+        if (_onWrite) _onWrite(bits, NUM_BOARDS);
     }
 
     // Debug version with logging (use sparingly)
@@ -52,6 +58,8 @@ public:
     }
 
 private:
+    std::function<void(const uint8_t*, int)> _onWrite;
+
     // Shift byte without latch (for daisy-chain)
     // MSB first: bit 7 shifted first → lands at Q7, bit 0 last → lands at Q0
     void _shiftByteNoLatch(uint8_t val) {

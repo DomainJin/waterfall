@@ -11,6 +11,7 @@
 #include "ble_config.h"
 #include "mqtt_manager.h"
 #include "sound_mode.h"
+#include "clock_mode.h"
 
 // ============================================================
 //  Global objects
@@ -20,8 +21,9 @@ ValveDriver   g_valve;
 TcpServer     g_tcp(g_queue, g_valve);
 Scheduler     g_scheduler(g_queue, g_valve, g_tcp);
 SoundMode     g_sound;
+ClockMode     g_clock;
 
-enum DeviceMode { MODE_STREAM, MODE_SOUND };
+enum DeviceMode { MODE_STREAM, MODE_SOUND, MODE_CLOCK };
 DeviceMode    g_mode = MODE_STREAM;
 SDManager     g_sd;
 ConfigServer  g_cfg;
@@ -67,6 +69,26 @@ void setup() {
     Serial.printf("\n[SETUP] Initializing hardware...\n");
     Serial.flush();
     g_valve.begin();
+    // Broadcast actual valve bits to all WS clients after every hardware write.
+    // Rate-limited to 30fps so high-speed streams don't flood the socket.
+    g_valve.setWriteCallback([](const uint8_t* bits, int n) {
+        if (!g_tcp.hasClient()) return;
+        static uint32_t _lastBcast = 0;
+        uint32_t now = millis();
+        if (now - _lastBcast < 33) return;
+        _lastBcast = now;
+        // Build compact JSON: {"type":"valves","bits":"AABB..."}
+        char buf[32 + NUM_BOARDS * 2];
+        static const char HEX[] = "0123456789ABCDEF";
+        int p = 0;
+        memcpy(buf + p, "{\"type\":\"valves\",\"bits\":\"", 24); p += 24;
+        for (int i = 0; i < n; i++) {
+            buf[p++] = HEX[bits[i] >> 4];
+            buf[p++] = HEX[bits[i] & 0xF];
+        }
+        buf[p++] = '"'; buf[p++] = '}'; buf[p] = '\0';
+        g_tcp.broadcastJSON(String(buf));
+    });
     Serial.printf("[SETUP] ✓ Valve driver initialized\n");
     Serial.flush();
 
@@ -88,7 +110,23 @@ void setup() {
     setupWiFi();
     Serial.printf("[SETUP] ✓ WiFi setup done\n");
     Serial.flush();
-    
+
+    // NTP time sync (requires WiFi)
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("[SETUP] Syncing NTP time (%s UTC+7)...\n", NTP_SERVER);
+        configTime(NTP_GMT_OFFSET_SEC, NTP_DAYLIGHT_OFFSET, NTP_SERVER);
+        struct tm t;
+        if (getLocalTime(&t, 5000)) {
+            Serial.printf("[SETUP] ✓ NTP synced: %02d:%02d:%02d\n",
+                          t.tm_hour, t.tm_min, t.tm_sec);
+        } else {
+            Serial.println("[SETUP] ⚠ NTP sync timeout — clock will show --:--");
+        }
+    }
+
+    // Init clock mode
+    g_clock.begin(g_valve);
+
     // Setup SD Card
     Serial.printf("[SETUP] Initializing SD card...\n");
     Serial.flush();
@@ -112,6 +150,12 @@ void setup() {
             else if (pattern == "wave") p = SOUND_WAVE;
             g_sound.setPattern(p);
             Serial.printf("[MODE] → SOUND pattern=%s sens=%d\n", pattern.c_str(), sensitivity);
+        } else if (mode == "clock") {
+            g_mode = MODE_CLOCK;
+            // sensitivity slider reused as row interval (20–200ms)
+            uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
+            g_clock.setRowInterval(rowMs);
+            Serial.printf("[MODE] → CLOCK row_interval=%ums\n", rowMs);
         } else {
             g_mode = MODE_STREAM;
             g_valve.allOff();
@@ -253,7 +297,10 @@ void loop() {
     // ─────────────────────────────────────────────────────
     g_sound.setValveOutput(g_mode == MODE_SOUND);
     g_sound.tick();
-    if (g_mode == MODE_STREAM) {
+
+    if (g_mode == MODE_CLOCK) {
+        g_clock.tick();
+    } else if (g_mode == MODE_STREAM) {
         g_scheduler.tick();
     }
     

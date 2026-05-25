@@ -540,6 +540,21 @@
                     onclick="setMode('stream')" style="flex:1">Stream</button>
             <button class="btn btn-ghost btn-sm" id="mode-btn-sound"
                     onclick="setMode('sound')" style="flex:1">Sound</button>
+            <button class="btn btn-ghost btn-sm" id="mode-btn-clock"
+                    onclick="setMode('clock')" style="flex:1">Clock</button>
+          </div>
+          <div id="clock-opts" style="display:none;">
+            <label style="font-size:11px;color:var(--muted);">
+              Text size <span id="clock-speed-val">50</span>
+              <span style="font-size:10px;opacity:.6;">(slider = row speed)</span>
+            </label>
+            <input type="range" id="clock-speed" min="0" max="100" value="50"
+                   oninput="document.getElementById('clock-speed-val').textContent=this.value"
+                   onchange="sendClockConfig()"
+                   style="width:100%;margin-top:4px;accent-color:var(--primary);">
+            <div style="margin-top:6px;font-size:10px;color:var(--muted);">
+              Slide ◀ slower rows (taller text) &nbsp;|&nbsp; ▶ faster rows (shorter text)
+            </div>
           </div>
           <div id="sound-opts" style="display:none;">
             <label style="font-size:11px;color:var(--muted);margin-bottom:4px;display:block;">Pattern</label>
@@ -1189,6 +1204,14 @@
             <span class="badge" id="dim-badge">—</span>
           </div>
           <canvas id="pixel-canvas" height="80"></canvas>
+          <!-- Live valve state — driven by ESP32 broadcast, not local simulation -->
+          <div style="display:flex;justify-content:space-between;align-items:center;
+                      margin-top:4px;padding:0 2px;font-size:10px;color:var(--muted);">
+            <span>ESP32 live</span>
+            <span id="live-active-count">—</span>
+          </div>
+          <canvas id="live-bar" height="12"
+                  style="width:100%;display:block;background:#010d1a;border-radius:2px;"></canvas>
         </div>
         <div class="resize-h" id="h-handle" title="Kéo để thay đổi chiều cao"></div>
         <div class="panel-sim">
@@ -1222,6 +1245,43 @@
       let numBoards = 10;
       let VALVES = numBoards * 8;
       let CHIPS = numBoards;
+
+      // ── Live valve state (from ESP32 broadcast) ──────────────
+      let liveValveBits = null;  // Uint8Array(CHIPS) | null
+
+      function _onLiveValves(hexStr) {
+        if (!liveValveBits) liveValveBits = new Uint8Array(CHIPS);
+        for (let i = 0; i < CHIPS; i++) {
+          liveValveBits[i] = parseInt(hexStr.slice(i * 2, i * 2 + 2), 16) || 0;
+        }
+        // Count open valves (MSB-first: bit7 = leftmost valve in each board)
+        let cnt = 0;
+        for (let v = 0; v < VALVES; v++) {
+          if ((liveValveBits[v >> 3] >> (7 - (v & 7))) & 1) cnt++;
+        }
+        document.getElementById('live-active-count').textContent = cnt + ' / ' + VALVES;
+        document.getElementById('s-active').textContent = cnt;
+        _renderLiveBar();
+      }
+
+      function _renderLiveBar() {
+        const canvas = document.getElementById('live-bar');
+        if (!canvas || !liveValveBits) return;
+        const W = canvas.offsetWidth || canvas.parentElement.clientWidth;
+        if (!W) return;
+        canvas.width = W;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#010d1a';
+        ctx.fillRect(0, 0, W, 12);
+        const colW = W / VALVES;
+        for (let v = 0; v < VALVES; v++) {
+          if ((liveValveBits[v >> 3] >> (7 - (v & 7))) & 1) {
+            ctx.fillStyle = '#00ff9d';
+            ctx.fillRect(Math.round(v * colW), 1, Math.max(1, Math.ceil(colW) - 1), 10);
+          }
+        }
+      }
+      // ─────────────────────────────────────────────────────────
       const G = 980;
 
       let frames = [],
@@ -1505,18 +1565,29 @@
       function setMode(mode) {
         _currentMode = mode;
         // Update button states
-        document.getElementById('mode-btn-stream').className =
-          mode === 'stream' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
-        document.getElementById('mode-btn-sound').className =
-          mode === 'sound'  ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+        ['stream','sound','clock'].forEach(m => {
+          const btn = document.getElementById('mode-btn-' + m);
+          if (btn) btn.className = m === mode ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+        });
         document.getElementById('sound-opts').style.display =
           mode === 'sound' ? '' : 'none';
+        document.getElementById('clock-opts').style.display =
+          mode === 'clock' ? '' : 'none';
         const opts = { mode };
         if (mode === 'sound') {
           opts.pattern     = _soundPattern;
           opts.sensitivity = parseInt(document.getElementById('sensitivity').value);
+        } else if (mode === 'clock') {
+          opts.sensitivity = parseInt(document.getElementById('clock-speed').value);
         }
         sendCommand('SET_MODE', opts).catch(e => console.warn('SET_MODE:', e));
+      }
+
+      function sendClockConfig() {
+        if (_currentMode !== 'clock') return;
+        const sensitivity = parseInt(document.getElementById('clock-speed').value);
+        sendCommand('SET_MODE', { mode: 'clock', sensitivity })
+          .catch(e => console.warn('sendClockConfig:', e));
       }
 
       function setSoundPattern(pattern) {
@@ -1655,6 +1726,13 @@
           ws.onerror = () => {
             log(`Không kết nối được tới ${ip}:${port}`, "log-err");
             log("Kiểm tra: ESP32 đã khởi động? Cùng mạng WiFi?", "log-err");
+          };
+          ws.onmessage = (e) => {
+            if (typeof e.data !== 'string') return;
+            try {
+              const d = JSON.parse(e.data);
+              if (d.type === 'valves' && d.bits) _onLiveValves(d.bits);
+            } catch {}
           };
         } catch (e) { log(e.message, "log-err"); }
       }
