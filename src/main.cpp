@@ -242,6 +242,46 @@ void setup() {
                             }
                         }
                     }
+                } else if (payload.indexOf("SET_MODE") >= 0) {
+                    // Parse "mode" string field
+                    auto parseStr = [](const String& p, const char* key) -> String {
+                        String k = String("\"") + key + "\":\"";
+                        int idx = p.indexOf(k);
+                        if (idx < 0) return String();
+                        int s = idx + k.length();
+                        int e = p.indexOf('"', s);
+                        return (e > s) ? p.substring(s, e) : String();
+                    };
+                    // Parse "sensitivity" int field
+                    auto parseInt_ = [](const String& p, const char* key) -> int {
+                        String k = String("\"") + key + "\":";
+                        int idx = p.indexOf(k);
+                        if (idx < 0) return 50;
+                        int s = idx + k.length();
+                        while (s < (int)p.length() && (p[s] == ' ' || p[s] == '"')) s++;
+                        return p.substring(s).toInt();
+                    };
+                    String mode    = parseStr(payload, "mode");
+                    String pattern = parseStr(payload, "pattern");
+                    int sensitivity = parseInt_(payload, "sensitivity");
+                    if (mode == "sound") {
+                        g_mode = MODE_SOUND;
+                        g_sound.setSensitivity((uint8_t)sensitivity);
+                        SoundPattern sp = SOUND_RIPPLE;
+                        if (pattern == "columns") sp = SOUND_COLUMNS;
+                        else if (pattern == "wave") sp = SOUND_WAVE;
+                        g_sound.setPattern(sp);
+                        Serial.printf("[MQTT] SET_MODE → SOUND pattern=%s sens=%d\n", pattern.c_str(), sensitivity);
+                    } else if (mode == "clock") {
+                        g_mode = MODE_CLOCK;
+                        uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
+                        g_clock.setRowInterval(rowMs);
+                        Serial.printf("[MQTT] SET_MODE → CLOCK row_interval=%ums\n", rowMs);
+                    } else {
+                        g_mode = MODE_STREAM;
+                        g_valve.allOff();
+                        Serial.println("[MQTT] SET_MODE → STREAM");
+                    }
                 }
             } else if (topic == MQTT_TOPIC_STREAM) {
                 // {"frame":"AABBCC..."} — hex encoded frame bytes
