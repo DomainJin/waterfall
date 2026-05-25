@@ -973,6 +973,10 @@ def api_cmd():
         payload_dict["bits"] = bits
     if target:
         payload_dict["target"] = target
+    # Pass through extra fields (mode, pattern, sensitivity for SET_MODE, etc.)
+    for key, val in data.items():
+        if key not in payload_dict and key not in ('cmd', 'bits', 'target'):
+            payload_dict[key] = val
 
     # separators=(',',':') → compact JSON không space → firmware indexOf("bits\":\"") match
     mqtt_relay.publish(TOPIC_VALVE, json.dumps(payload_dict, separators=(',', ':')), qos=1)
