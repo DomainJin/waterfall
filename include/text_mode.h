@@ -152,20 +152,25 @@ private:
     int          _totalW      = 0;
     int          _xStart      = 0;
 
+    // Marquee threshold: scroll only when text is more than 1.5× the display width
+    static const int MARQUEE_STEP = CHAR_W + CHAR_GAP;  // advance one char per cycle
+
     void _initScroll() {
         const int VALVES = NUM_BOARDS * 8;
-        if (_totalW <= VALVES) {
+        if (_totalW <= VALVES * 3 / 2) {
+            // Center — may clip a few pixels on each side for long-ish text, no scrolling
             _xStart = (VALVES - _totalW) / 2;
         } else {
-            _xStart = VALVES;  // starts off the right edge, scrolls left
+            // True marquee: start with text fully visible at left edge
+            _xStart = 0;
         }
     }
 
     void _advanceScroll() {
         const int VALVES = NUM_BOARDS * 8;
-        if (_totalW <= VALVES) return;
-        _xStart--;
-        if (_xStart <= -_totalW) _xStart = VALVES;
+        if (_totalW <= VALVES * 3 / 2) return;  // centered, no scroll
+        _xStart -= MARQUEE_STEP;
+        if (_xStart <= -_totalW) _xStart = VALVES;  // re-enter from right
     }
 
     void _setValve(uint8_t* bits, int v) {

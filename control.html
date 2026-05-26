@@ -1345,11 +1345,12 @@
         const FONT_W = 5, SCALE = 2, CHAR_W = FONT_W * SCALE, GAP = 2;
         const FONT_H = 7, BLANK = 4;
         text = text.toUpperCase();
-        const totalW     = text.length > 0 ? text.length * (CHAR_W + GAP) - GAP : 0;
-        const needsScroll = totalW > VALVES;
-        let xStart       = needsScroll ? VALVES : Math.floor((VALVES - totalW) / 2);
-        const gapTicks   = Math.ceil(gapMs / Math.max(rowMs, 1));
-        const totalTicks = FONT_H + BLANK + gapTicks;
+        const MARQUEE_STEP = CHAR_W + GAP;  // advance one char-slot per cycle
+        const totalW       = text.length > 0 ? text.length * (CHAR_W + GAP) - GAP : 0;
+        const needsScroll  = totalW > VALVES * 1.5;
+        let xStart         = needsScroll ? 0 : Math.floor((VALVES - totalW) / 2);
+        const gapTicks     = Math.ceil(gapMs / Math.max(rowMs, 1));
+        const totalTicks   = FONT_H + BLANK + gapTicks;
         let rowIdx = 0;
         _clockSimTimer = setInterval(() => {
           if (!liveSimRunning) { clearInterval(_clockSimTimer); _clockSimTimer = null; return; }
@@ -1380,7 +1381,10 @@
           rowIdx++;
           if (rowIdx >= totalTicks) {
             rowIdx = 0;
-            if (needsScroll) { xStart--; if (xStart <= -totalW) xStart = VALVES; }
+            if (needsScroll) {
+              xStart -= MARQUEE_STEP;
+              if (xStart <= -totalW) xStart = VALVES;  // re-enter from right
+            }
           }
         }, rowMs);
       }
