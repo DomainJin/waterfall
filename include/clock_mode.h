@@ -48,7 +48,13 @@ public:
     void setCycleGap(uint32_t ms)    { _gapMs = ms; }
 
     // Flip left↔right if digits appear mirrored on the curtain
-    void setMirror(bool m) { _mirror = m; }
+    void setMirror(bool m)  { _mirror = m; }
+
+    // Flip top↔bottom (reverse row order)
+    void setFlipV(bool v)   { _flipV = v; }
+
+    // Invert: open all valves EXCEPT the digit pixels
+    void setInvert(bool inv) { _invert = inv; }
 
     void tick() {
         uint32_t now = millis();
@@ -68,9 +74,16 @@ public:
 
         uint8_t bits[NUM_BOARDS] = {};
         if (_currentRow < FONT_H) {
-            _renderRow(_currentRow, bits);
+            int renderRow = _flipV ? (FONT_H - 1 - _currentRow) : _currentRow;
+            _renderRow(renderRow, bits);
+            if (_invert) {
+                for (int i = 0; i < NUM_BOARDS; i++) bits[i] = ~bits[i];
+            }
         }
-        // else: blank row (bits already zero)
+        // else: blank row — if inverted, all valves open during blank rows too
+        else if (_invert) {
+            for (int i = 0; i < NUM_BOARDS; i++) bits[i] = 0xFF;
+        }
 
         _v->write(bits);
 
@@ -94,6 +107,8 @@ private:
     uint32_t     _gapStart    = 0;
     int          _currentRow  = 0;
     bool         _mirror      = false;
+    bool         _flipV       = false;
+    bool         _invert      = false;
     bool         _inGap       = false;
     uint8_t      _chars[NUM_CHARS] = {11,11,10,11,11};  // "--:--" until NTP syncs
 

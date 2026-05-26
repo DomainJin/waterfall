@@ -141,7 +141,7 @@ void setup() {
     Serial.flush();
     g_tcp.begin();
     // Mode switching via WebSocket SET_MODE command
-    g_tcp.onModeChange([](const String& mode, const String& pattern, int sensitivity, int gapMs, bool mirrorH) {
+    g_tcp.onModeChange([](const String& mode, const String& pattern, int sensitivity, int gapMs, bool mirrorH, bool flipV, bool invert) {
         if (mode == "sound") {
             g_mode = MODE_SOUND;
             g_sound.setSensitivity((uint8_t)sensitivity);
@@ -156,7 +156,10 @@ void setup() {
             g_clock.setRowInterval(rowMs);
             g_clock.setCycleGap((uint32_t)gapMs);
             g_clock.setMirror(mirrorH);
-            Serial.printf("[MODE] → CLOCK row_interval=%ums gap=%dms mirror=%d\n", rowMs, gapMs, (int)mirrorH);
+            g_clock.setFlipV(flipV);
+            g_clock.setInvert(invert);
+            Serial.printf("[MODE] → CLOCK row=%ums gap=%dms mirror=%d flipV=%d inv=%d\n",
+                          rowMs, gapMs, (int)mirrorH, (int)flipV, (int)invert);
         } else {
             g_mode = MODE_STREAM;
             g_valve.allOff();
@@ -267,6 +270,8 @@ void setup() {
                     int sensitivity = parseInt_(payload, "sensitivity", 50);
                     int gapMs       = parseInt_(payload, "gapMs", 0);
                     bool mirrorH    = payload.indexOf("\"mirrorH\":true") >= 0;
+                    bool flipV      = payload.indexOf("\"flipV\":true")   >= 0;
+                    bool invert     = payload.indexOf("\"invert\":true")  >= 0;
                     if (mode == "sound") {
                         g_mode = MODE_SOUND;
                         g_sound.setSensitivity((uint8_t)sensitivity);
@@ -281,7 +286,10 @@ void setup() {
                         g_clock.setRowInterval(rowMs);
                         g_clock.setCycleGap((uint32_t)gapMs);
                         g_clock.setMirror(mirrorH);
-                        Serial.printf("[MQTT] SET_MODE → CLOCK row_interval=%ums gap=%dms mirror=%d\n", rowMs, gapMs, (int)mirrorH);
+                        g_clock.setFlipV(flipV);
+                        g_clock.setInvert(invert);
+                        Serial.printf("[MQTT] SET_MODE → CLOCK row=%ums gap=%dms mirror=%d flipV=%d inv=%d\n",
+                                      rowMs, gapMs, (int)mirrorH, (int)flipV, (int)invert);
                     } else {
                         g_mode = MODE_STREAM;
                         g_valve.allOff();
