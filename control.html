@@ -2588,17 +2588,7 @@
               }
               const yTop = Math.max(8, Math.min(yTail, H));
               const yBot = Math.min(H, yFront - dropR * 0.5);
-              if (yBot > yTop + 0.5) {
-                const sH = yBot - yTop;
-                ctx.fillStyle = "rgba(190,240,255,0.95)";
-                ctx.fillRect(x0, yTop, sw, sH * 0.25);
-                ctx.fillStyle = "rgba(0,175,240,0.90)";
-                ctx.fillRect(x0, yTop + sH * 0.25, sw, sH * 0.75);
-              }
-              if (yFront < H && yFront > 8) {
-                ctx.fillStyle = "rgba(100,230,255,0.95)";
-                ctx.beginPath(); ctx.arc(cx, yFront, dropR, 0, Math.PI * 2); ctx.fill();
-              }
+              _paintStream(ctx, cx, x0, sw, colW, tTail, yTop, yBot, yFront, dropR, H);
               if (tTail >= 0 && tTail < 300) {
                 const sR = (tTail / 300) * colW * 2.5;
                 ctx.strokeStyle = `rgba(0,200,255,${1 - tTail / 300})`;
@@ -2636,6 +2626,92 @@
         );
       }
       // ─────────────────────────────────────────────────────────
+
+      // ── Shared stream painter ────────────────────────────────
+      function _paintStream(ctx, cx, x0, sw, colW, tTail, yTop, yBot, yFront, dropR, H) {
+        const bodyH = yBot - yTop;
+        const isOpen = tTail <= 0;
+
+        if (bodyH > 0.5) {
+          // Outer glow behind stream
+          const glowW = sw + colW * 0.7;
+          const gx = cx - glowW / 2;
+          const gGrad = ctx.createLinearGradient(gx, 0, gx + glowW, 0);
+          gGrad.addColorStop(0,   'rgba(0,165,255,0)');
+          gGrad.addColorStop(0.2, 'rgba(0,165,255,0.07)');
+          gGrad.addColorStop(0.5, 'rgba(0,165,255,0.12)');
+          gGrad.addColorStop(0.8, 'rgba(0,165,255,0.07)');
+          gGrad.addColorStop(1,   'rgba(0,165,255,0)');
+          ctx.fillStyle = gGrad;
+          ctx.fillRect(gx, yTop, glowW, bodyH);
+
+          // Stream body
+          const grad = ctx.createLinearGradient(cx, yTop, cx, yBot);
+          if (isOpen) {
+            grad.addColorStop(0,    'rgba(200,242,255,1)');
+            grad.addColorStop(0.07, 'rgba(90,218,255,1)');
+            grad.addColorStop(0.4,  'rgba(0,188,255,1)');
+            grad.addColorStop(1,    'rgba(0,140,228,1)');
+          } else {
+            const fadeH = Math.min(bodyH * 0.55, 24);
+            const ff    = Math.min(0.92, fadeH / Math.max(bodyH, 1));
+            grad.addColorStop(0,  'rgba(0,188,255,0)');
+            grad.addColorStop(ff, 'rgba(0,188,255,0.96)');
+            grad.addColorStop(1,  'rgba(0,148,232,0.88)');
+          }
+          ctx.fillStyle = grad;
+          ctx.fillRect(x0, yTop, sw, bodyH);
+
+          // Edge shimmer
+          if (sw > 3) {
+            const shimW = Math.max(0.8, sw * 0.16);
+            const shimGrad = ctx.createLinearGradient(cx, yTop, cx, Math.min(yTop + 120, yBot));
+            if (isOpen) {
+              shimGrad.addColorStop(0,   'rgba(225,252,255,0.9)');
+              shimGrad.addColorStop(0.35,'rgba(175,240,255,0.5)');
+              shimGrad.addColorStop(1,   'rgba(110,200,255,0.12)');
+            } else {
+              const ff2 = Math.min(0.92, 20 / Math.max(bodyH, 1));
+              shimGrad.addColorStop(0,    'rgba(175,240,255,0)');
+              shimGrad.addColorStop(ff2,  'rgba(175,240,255,0.7)');
+              shimGrad.addColorStop(1,    'rgba(110,200,255,0.15)');
+            }
+            ctx.fillStyle = shimGrad;
+            ctx.fillRect(x0, yTop, shimW, bodyH);
+            ctx.fillRect(x0 + sw - shimW, yTop, shimW, bodyH);
+          }
+        }
+
+        // Leading drop
+        if (yFront >= -dropR && yFront < H + dropR * 2) {
+          const dy = Math.min(H + dropR, yFront);
+
+          // Glow halo
+          const gr = dropR * 1.8;
+          const halo = ctx.createRadialGradient(cx, dy, dropR * 0.35, cx, dy, gr);
+          halo.addColorStop(0, 'rgba(0,185,255,0.22)');
+          halo.addColorStop(1, 'rgba(0,150,255,0)');
+          ctx.fillStyle = halo;
+          ctx.beginPath(); ctx.arc(cx, dy, gr, 0, Math.PI * 2); ctx.fill();
+
+          // Drop body
+          const dGrad = ctx.createRadialGradient(
+            cx - dropR * 0.22, dy - dropR * 0.22, dropR * 0.04,
+            cx, dy, dropR
+          );
+          dGrad.addColorStop(0,    'rgba(175,238,255,1)');
+          dGrad.addColorStop(0.42, 'rgba(0,192,255,1)');
+          dGrad.addColorStop(1,    'rgba(0,130,225,0.92)');
+          ctx.fillStyle = dGrad;
+          ctx.beginPath(); ctx.arc(cx, dy, dropR, 0, Math.PI * 2); ctx.fill();
+
+          // Specular highlight
+          ctx.fillStyle = 'rgba(228,252,255,0.95)';
+          ctx.beginPath();
+          ctx.arc(cx - dropR * 0.28, dy - dropR * 0.3, dropR * 0.31, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
 
       // ── Simulation ──────────────────────────────────────────
       function initSim() {
@@ -2742,30 +2818,7 @@
               }
               const yTop = Math.max(8, Math.min(yTail, H));
               const yBot = Math.min(H, yFront - dropR * 0.5);
-              if (yBot > yTop + 0.5) {
-                const sH = yBot - yTop;
-                ctx.fillStyle = "rgba(190,240,255,0.95)";
-                ctx.fillRect(x0, yTop, sw, sH * 0.25);
-                ctx.fillStyle = "rgba(0,175,240,0.90)";
-                ctx.fillRect(x0, yTop + sH * 0.25, sw, sH * 0.75);
-              }
-              if (yFront >= -dropR && yFront < H + dropR * 2) {
-                const dy = Math.min(H + dropR, yFront);
-                ctx.fillStyle = "rgba(0,160,240,0.90)";
-                ctx.beginPath();
-                ctx.arc(cx, dy, dropR, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = "rgba(215,250,255,0.95)";
-                ctx.beginPath();
-                ctx.arc(
-                  cx - dropR * 0.25,
-                  dy - dropR * 0.28,
-                  dropR * 0.34,
-                  0,
-                  Math.PI * 2,
-                );
-                ctx.fill();
-              }
+              _paintStream(ctx, cx, x0, sw, colW, tTail, yTop, yBot, yFront, dropR, H);
               if (yFront >= H - 6 && yFront < H + 70) {
                 const age = (yFront - H + 6) / 60,
                   sr = age * colW * 3,
