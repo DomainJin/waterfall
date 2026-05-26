@@ -32,8 +32,8 @@ public:
         Serial.printf("[WS] WebSocket server on port %d\n", TCP_PORT);
     }
 
-    // Register callback for SET_MODE commands: cb(mode, pattern, sensitivity, gapMs)
-    void onModeChange(std::function<void(const String&, const String&, int, int)> cb) {
+    // Register callback for SET_MODE commands: cb(mode, pattern, sensitivity, gapMs, mirrorH)
+    void onModeChange(std::function<void(const String&, const String&, int, int, bool)> cb) {
         _onModeChange = cb;
     }
 
@@ -85,7 +85,7 @@ private:
     bool             _hasClient  = false;
     uint32_t         _t0         = 0;
     uint32_t         _drainStart = 0;
-    std::function<void(const String&, const String&, int, int)> _onModeChange;
+    std::function<void(const String&, const String&, int, int, bool)> _onModeChange;
 
     static const uint16_t RX_BUF_SIZE = FRAME_BYTES * 64;
     uint8_t  _rx[RX_BUF_SIZE];
@@ -132,9 +132,10 @@ private:
             int gapMs = 0;
             int gidx = json.indexOf("\"gapMs\":");
             if (gidx >= 0) gapMs = json.substring(gidx + 8).toInt();
-            Serial.printf("[WS] CMD SET_MODE mode=%s sens=%d gap=%dms\n",
-                          mode.c_str(), sensitivity, gapMs);
-            _onModeChange(mode, pattern, sensitivity, gapMs);
+            bool mirrorH = json.indexOf("\"mirrorH\":true") >= 0;
+            Serial.printf("[WS] CMD SET_MODE mode=%s sens=%d gap=%dms mirror=%d\n",
+                          mode.c_str(), sensitivity, gapMs, (int)mirrorH);
+            _onModeChange(mode, pattern, sensitivity, gapMs, mirrorH);
         }
     }
 

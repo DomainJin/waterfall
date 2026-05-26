@@ -152,6 +152,16 @@
       .sec-body.collapsed { display: none; }
       .sec-chevron { transition: transform .2s; font-size: 10px; }
       .sec-chevron.open { transform: rotate(180deg); }
+      .subsec-label {
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted-soft);
+        margin-bottom: 6px;
+        padding-bottom: 3px;
+        border-bottom: 1px solid var(--border);
+      }
       label {
         font-size: 11px;
         color: var(--muted);
@@ -611,172 +621,133 @@
 
         <!-- Config Device removed — use the Config tab for device config -->
 
+        <!-- ─── Content ─── -->
         <div class="sec">
-          <div class="sec-title">Image Source</div>
-          <div class="dropzone" id="dropzone">
-            <input
-              type="file"
-              accept="image/*"
-              id="file-input"
-              onchange="loadFile(this)"
-            />
-            <p>Drop image here<br /><span>or click to browse</span></p>
+          <div class="sec-title collapsible" onclick="toggleSec('content-body','content-chev')">
+            <span>Content</span>
+            <span class="sec-chevron open" id="content-chev">▾</span>
           </div>
-          <img id="thumb-preview" />
+          <div class="sec-body" id="content-body">
+            <div class="subsec-label">Image</div>
+            <div class="dropzone" id="dropzone">
+              <input type="file" accept="image/*" id="file-input" onchange="loadFile(this)"/>
+              <p>Drop image here<br/><span>or click to browse</span></p>
+            </div>
+            <img id="thumb-preview"/>
+            <div class="subsec-label" style="margin-top:14px">Pattern</div>
+            <select id="pattern-type" style="width:100%;padding:7px 9px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:5px;font-size:11px;margin-bottom:8px" onchange="updatePatternPreview()">
+              <option value="spiral">Spiral (Xoắn ốc)</option>
+              <option value="wave">Wave (Uốn lượn)</option>
+              <option value="striped">Striped (Xen kẻ)</option>
+              <option value="checkerboard">Checkerboard (Bàn cờ)</option>
+              <option value="rain">Rain (Mưa)</option>
+              <option value="diagonal">Diagonal (Chéo)</option>
+              <option value="pulse">Pulse (Nhịp)</option>
+            </select>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+              <label style="font-size:11px;white-space:nowrap;color:var(--muted);margin:0">Density</label>
+              <input type="range" id="pattern-density" min="0" max="100" value="50" style="flex:1" oninput="document.getElementById('pattern-density-val').textContent=this.value+'%';updatePatternPreview()"/>
+              <span class="val-label" id="pattern-density-val" style="min-width:32px;margin:0">50%</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <label style="font-size:11px;white-space:nowrap;color:var(--muted);margin:0">Rows</label>
+              <input type="number" id="pattern-rows" min="4" max="32" value="10" style="width:52px;padding:3px 5px;font-size:11px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);text-align:center"/>
+            </div>
+          </div>
         </div>
+
+        <!-- ─── Pixel Transforms ─── -->
         <div class="sec">
-          <div class="sec-title collapsible" onclick="toggleSec('bg-body','bg-chev')">
-            <span>Image Processing</span>
-            <span class="sec-chevron open" id="bg-chev">▾</span>
+          <div class="sec-title collapsible" onclick="toggleSec('px-body','px-chev')">
+            <span>Pixel Transforms</span>
+            <span class="sec-chevron open" id="px-chev">▾</span>
           </div>
-          <div class="sec-body" id="bg-body">
-          <div class="seg-row">
-            <label>Remove dark background</label>
-            <label class="tw on" id="tw-rmbg"
-              ><input
-                type="checkbox"
-                id="cb-rmbg"
-                checked
-                onchange="toggleOpt('rmbg')" /><span class="tw-knob"></span
-            ></label>
+          <div class="sec-body" id="px-body">
+            <div class="subsec-label">All modes</div>
+            <div class="seg-row">
+              <label>Flip horizontal</label>
+              <label class="tw" id="tw-fliph"><input type="checkbox" id="cb-fliph" onchange="toggleOpt('fliph')"/><span class="tw-knob"></span></label>
+            </div>
+            <div class="seg-row">
+              <label>Flip vertical</label>
+              <label class="tw on" id="tw-flipv"><input type="checkbox" id="cb-flipv" checked onchange="toggleOpt('flipv')"/><span class="tw-knob"></span></label>
+            </div>
+            <div class="seg-row">
+              <label>Invert</label>
+              <label class="tw" id="tw-inv"><input type="checkbox" id="cb-inv" onchange="toggleOpt('inv')"/><span class="tw-knob"></span></label>
+            </div>
+            <div class="subsec-label" style="margin-top:10px">Image only</div>
+            <div class="seg-row">
+              <label>Remove dark background</label>
+              <label class="tw on" id="tw-rmbg"><input type="checkbox" id="cb-rmbg" checked onchange="toggleOpt('rmbg')"/><span class="tw-knob"></span></label>
+            </div>
+            <div class="seg-row">
+              <label>Saturation boost</label>
+              <label class="tw on" id="tw-sat"><input type="checkbox" id="cb-sat" checked onchange="toggleOpt('sat')"/><span class="tw-knob"></span></label>
+            </div>
+            <div style="margin-top:10px">
+              <label>Threshold <span id="thr-lbl" style="color:var(--accent);font-family:var(--mono)">40</span></label>
+              <input type="range" id="thr" min="5" max="230" value="40" oninput="onThr()"/>
+            </div>
+            <div style="margin-top:6px">
+              <label>Dilation <span id="dil-lbl" style="color:var(--accent);font-family:var(--mono)">1</span>px</label>
+              <input type="range" id="dil" min="0" max="5" value="1" step="1" oninput="onDil()"/>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" onclick="reprocess()">↺ Reprocess</button>
+              <button class="btn btn-ghost btn-sm" onclick="autoThreshold()">Auto</button>
+            </div>
           </div>
-          <div class="seg-row">
-            <label>Invert (remove bright bg)</label>
-            <label class="tw" id="tw-inv"
-              ><input
-                type="checkbox"
-                id="cb-inv"
-                onchange="toggleOpt('inv')" /><span class="tw-knob"></span
-            ></label>
-          </div>
-          <div class="seg-row">
-            <label>Saturation boost</label>
-            <label class="tw on" id="tw-sat"
-              ><input
-                type="checkbox"
-                id="cb-sat"
-                checked
-                onchange="toggleOpt('sat')" /><span class="tw-knob"></span
-            ></label>
-          </div>
-          <div class="seg-row">
-            <label>Flip horizontal</label>
-            <label class="tw" id="tw-fliph"
-              ><input
-                type="checkbox"
-                id="cb-fliph"
-                onchange="toggleOpt('fliph')" /><span class="tw-knob"></span
-            ></label>
-          </div>
-          <div class="seg-row">
-            <label>Flip vertical</label>
-            <label class="tw on" id="tw-flipv"
-              ><input
-                type="checkbox"
-                id="cb-flipv"
-                checked
-                onchange="toggleOpt('flipv')" /><span class="tw-knob"></span
-            ></label>
-          </div>
-          <div style="margin-top: 10px">
-            <label
-              >Threshold
-              <span
-                id="thr-lbl"
-                style="color: var(--accent); font-family: var(--mono)"
-                >40</span
-              ></label
-            >
-            <input
-              type="range"
-              id="thr"
-              min="5"
-              max="230"
-              value="40"
-              oninput="onThr()"
-            />
-          </div>
-          <div style="margin-top: 6px">
-            <label
-              >Dilation
-              <span
-                id="dil-lbl"
-                style="color: var(--accent); font-family: var(--mono)"
-                >1</span
-              >px</label
-            >
-            <input
-              type="range"
-              id="dil"
-              min="0"
-              max="5"
-              value="1"
-              step="1"
-              oninput="onDil()"
-            />
-          </div>
-          <div style="margin-top:8px;display:flex;gap:6px">
-            <button class="btn btn-ghost btn-sm" onclick="reprocess()">↺ Reprocess</button>
-            <button class="btn btn-ghost btn-sm" onclick="autoThreshold()">Auto</button>
-          </div>
-          </div><!-- /sec-body bg -->
         </div>
+
+        <!-- ─── Playback ─── -->
         <div class="sec">
-          <div class="sec-title">Physics & Timing</div>
-          <label>Drop height (cm)</label>
-          <input
-            type="number"
-            id="height"
-            value="150"
-            min="30"
-            max="600"
-            oninput="recalc()"
-          />
-          <div style="margin-top: 8px"></div>
-          <label>Row interval (ms)</label>
-          <input
-            type="range"
-            id="adv"
-            min="20"
-            max="400"
-            value="80"
-            oninput="recalc()"
-          />
+          <div class="sec-title">Playback</div>
+          <label>Frame interval (ms)</label>
+          <input type="range" id="adv" min="20" max="500" value="80" oninput="recalc()"/>
           <div class="val-label" id="adv-lbl">80 ms</div>
-          <div style="margin-top: 8px"></div>
-          <label>Sim speed</label>
-          <input
-            type="range"
-            id="speed"
-            min="0.1"
-            max="4"
-            step="0.1"
-            value="1"
-            oninput="updateSpeed()"
-          />
-          <div class="val-label" id="speed-lbl">1.0×</div>
-          <div style="margin-top: 8px" class="row2">
-            <div>
-              <label>Rows</label
-              ><input
-                type="text"
-                id="rows-d"
-                value="—"
-                readonly
-                style="opacity: 0.6"
-              />
-            </div>
-            <div>
-              <label>Frames</label
-              ><input
-                type="text"
-                id="frames-d"
-                value="—"
-                readonly
-                style="opacity: 0.6"
-              />
-            </div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <label style="font-size:11px;white-space:nowrap;color:var(--muted);margin:0">Gap (ms)</label>
+            <input type="number" id="loop-gap-ms" min="0" max="10000" value="1000"
+              style="width:64px;padding:3px 5px;font-size:11px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);text-align:center"
+              title="Wait time between loop cycles"/>
+            <span style="font-size:10px;color:var(--muted)">between cycles</span>
           </div>
+          <div style="margin-top:8px" class="row2">
+            <div><label>Rows</label><input type="text" id="rows-d" value="—" readonly style="opacity:0.6"/></div>
+            <div><label>Frames</label><input type="text" id="frames-d" value="—" readonly style="opacity:0.6"/></div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:6px">
+            <div id="lan-send-area" style="flex:1;min-width:0">
+              <button class="btn btn-primary btn-sm" id="btn-send" onclick="startStream()" disabled style="width:100%">▶ Image</button>
+            </div>
+            <button class="btn btn-primary btn-sm" id="btn-send-pattern" onclick="generateAndSendPattern()" style="flex:1">▶ Pattern</button>
+            <button class="btn btn-danger btn-sm" id="btn-stop-pattern" onclick="stopPatternLoop()" style="flex:1;display:none">⏹ Stop</button>
+          </div>
+          <div style="margin-top:4px;display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" id="btn-sim" onclick="startSimOnly()" disabled style="flex:1">Sim Image</button>
+            <button class="btn btn-ghost btn-sm" onclick="simulatePatternOnly()" style="flex:1">Sim Pattern</button>
+          </div>
+          <div style="margin-top:4px">
+            <button class="btn btn-danger btn-sm" onclick="stopAll()" style="width:100%">■ Stop / All off</button>
+          </div>
+          <div class="progress-bar" style="margin-top:6px"><div class="progress-fill" id="progress"></div></div>
+          <div class="mode-notice" id="mqtt-stream-notice" style="display:none;margin-top:8px;">
+            <strong>MQTT mode</strong> — Fire-and-forget SET per frame.<br>
+            <strong>▶ Image</strong> = stream ảnh qua MQTT. <strong>▶ Pattern</strong> = pattern toán học.<br>
+            Dùng LAN (<code>http://</code>) để stream tốc độ cao.
+          </div>
+        </div>
+
+        <!-- ─── Physics ─── -->
+        <div class="sec">
+          <div class="sec-title">Physics</div>
+          <label>Drop height (cm)</label>
+          <input type="number" id="height" value="150" min="30" max="600" oninput="recalc()"/>
+          <div style="margin-top:8px"></div>
+          <label>Sim speed</label>
+          <input type="range" id="speed" min="0.1" max="4" step="0.1" value="1" oninput="updateSpeed()"/>
+          <div class="val-label" id="speed-lbl">1.0×</div>
         </div>
 
         <div class="sec">
@@ -942,82 +913,6 @@
             </div>
           </div>
           </div><!-- /sec-body test -->
-        </div>
-
-        <div class="sec">
-          <div class="sec-title">Patterns</div>
-          <label>Pattern Type</label>
-          <select
-            id="pattern-type"
-            style="
-              width: 100%;
-              padding: 7px 9px;
-              background: var(--card);
-              border: 1px solid var(--border);
-              color: var(--text);
-              border-radius: 5px;
-              font-size: 11px;
-              margin-bottom: 8px;
-            "
-            onchange="updatePatternPreview()"
-          >
-            <option value="spiral">Spiral (Xoắn ốc)</option>
-            <option value="wave">Wave (Uốn lượn)</option>
-            <option value="striped">Striped (Xen kẻ)</option>
-            <option value="checkerboard">Checkerboard (Bàn cờ)</option>
-            <option value="rain">Rain (Mưa)</option>
-            <option value="diagonal">Diagonal (Chéo)</option>
-            <option value="pulse">Pulse (Nhịp)</option>
-          </select>
-          <label>Pattern Density</label>
-          <input
-            type="range"
-            id="pattern-density"
-            min="0"
-            max="100"
-            value="50"
-            oninput="updatePatternPreview()"
-          />
-          <div class="val-label" id="pattern-density-val">50%</div>
-          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-            <label style="font-size:11px;white-space:nowrap;color:var(--muted)">Rows</label>
-            <input type="number" id="pattern-rows" min="4" max="32" value="10"
-              style="width:48px;padding:3px 5px;font-size:11px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);text-align:center"/>
-            <label style="font-size:11px;white-space:nowrap;color:var(--muted)">Frame ms</label>
-            <input type="range" id="pattern-frame-ms" min="50" max="500" value="80"
-              style="flex:1" oninput="document.getElementById('pattern-frame-ms-val').textContent=this.value+'ms'"/>
-            <span class="val-label" id="pattern-frame-ms-val" style="min-width:38px">80ms</span>
-          </div>
-          <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
-            <label style="font-size:11px;white-space:nowrap;color:var(--muted)">Gap (ms)</label>
-            <input type="number" id="loop-gap-ms" min="0" max="10000" value="1000"
-              style="width:64px;padding:3px 5px;font-size:11px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);text-align:center"
-              title="Thời gian nghỉ giữa các vòng lặp (ms). Áp dụng cho Pattern và Image loop."/>
-            <span style="font-size:10px;color:var(--muted)">chờ giữa các vòng lặp</span>
-          </div>
-          <div style="margin-top:8px;display:flex;gap:6px">
-            <button class="btn btn-primary btn-sm" id="btn-send-pattern" onclick="generateAndSendPattern()" style="flex:1">▶ Loop Pattern</button>
-            <button class="btn btn-danger btn-sm" id="btn-stop-pattern" onclick="stopPatternLoop()" style="flex:1;display:none">⏹ Stop</button>
-            <button class="btn btn-ghost btn-sm" onclick="simulatePatternOnly()" style="flex:0 0 auto">Simulate</button>
-          </div>
-          <!-- MQTT notice (shown when in MQTT mode) -->
-          <div class="mode-notice" id="mqtt-stream-notice" style="display:none;margin-top:8px;">
-            <strong>MQTT mode</strong> — Fire-and-forget SET mỗi Frame ms.<br>
-            <strong>Send Pattern</strong> = test pattern toán học (không dùng ảnh).<br>
-            Dùng LAN (<code>http://</code>) để stream tốc độ cao.
-          </div>
-        </div>
-
-        <div class="sec">
-          <!-- MQTT mode: show notice, hide send button -->
-          <div id="lan-send-area">
-            <button class="btn btn-primary" id="btn-send" onclick="startStream()" disabled>▶ Send to ESP32</button>
-            <div style="margin-top:6px"></div>
-          </div>
-          <button class="btn btn-ghost" id="btn-sim" onclick="startSimOnly()" disabled>⬛ Simulate only</button>
-          <div style="margin-top:6px"></div>
-          <button class="btn btn-danger btn-sm" onclick="stopAll()">■ Stop / All off</button>
-          <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
         </div>
 
         <div class="sec">
@@ -1280,6 +1175,34 @@
         return row;
       }
 
+      // Apply active pixel transforms (flipH, flipV, invert) to an array of Uint8Array rows.
+      // Used for pattern and image-loop modes so all transforms are consistent.
+      function _applyPixelTransforms(rows) {
+        if (!rows.length) return rows;
+        let out = rows.map(r => new Uint8Array(r));
+        if (optInv) {
+          out = out.map(row => {
+            const r = new Uint8Array(row.length);
+            for (let i = 0; i < row.length; i++) r[i] = ~row[i] & 0xFF;
+            return r;
+          });
+        }
+        if (optFlipH) {
+          out = out.map(row => {
+            const n = row.length * 8;
+            const r = new Uint8Array(row.length);
+            for (let v = 0; v < n; v++) {
+              const bit = (row[v >> 3] >> (7 - (v & 7))) & 1;
+              const vf  = n - 1 - v;
+              if (bit) r[vf >> 3] |= (1 << (7 - (vf & 7)));
+            }
+            return r;
+          });
+        }
+        if (optFlipV) out = out.slice().reverse();
+        return out;
+      }
+
       // ── JS clock font (identical to firmware clock_mode.h) ───
       const _CLOCK_FONT = [
         [0x0E,0x11,0x11,0x11,0x11,0x11,0x0E], // 0
@@ -1451,6 +1374,7 @@
         if (k === "fliph") {
           optFlipH = document.getElementById("cb-fliph").checked;
           document.getElementById("tw-fliph").classList.toggle("on", optFlipH);
+          if (_currentMode === 'clock') sendClockConfig();
         }
         if (k === "flipv") {
           optFlipV = document.getElementById("cb-flipv").checked;
@@ -1704,14 +1628,14 @@
         if (_currentMode !== 'clock') return;
         const sensitivity = parseInt(document.getElementById('clock-speed').value);
         const gapMs = parseInt(document.getElementById('clock-gap-ms').value) || 0;
-        sendCommand('SET_MODE', { mode: 'clock', sensitivity, gapMs })
+        sendCommand('SET_MODE', { mode: 'clock', sensitivity, gapMs, mirrorH: optFlipH })
           .catch(e => console.warn('sendClockConfig:', e));
       }
 
       function runClock() {
         const sensitivity = parseInt(document.getElementById('clock-speed').value);
         const gapMs = parseInt(document.getElementById('clock-gap-ms').value) || 0;
-        sendCommand('SET_MODE', { mode: 'clock', sensitivity, gapMs })
+        sendCommand('SET_MODE', { mode: 'clock', sensitivity, gapMs, mirrorH: optFlipH })
           .catch(e => console.warn('runClock:', e));
         // rowMs mirrors firmware: map(sensitivity, 0,100, 200,20)
         const rowMs = Math.round(200 - sensitivity * 1.8);
@@ -2482,12 +2406,11 @@
         const type     = document.getElementById("pattern-type").value;
         const density  = parseInt(document.getElementById("pattern-density").value) / 100;
         const numRows  = Math.max(4, Math.min(32, parseInt(document.getElementById("pattern-rows").value) || 10));
-        const frameMs  = Math.max(50, Math.min(500, parseInt(document.getElementById("pattern-frame-ms").value) || 80));
-        const patternRows = generatePattern(type, numRows, VALVES, density);
+        const frameMs  = getAdv();
+        const patternRows = _applyPixelTransforms(generatePattern(type, numRows, VALVES, density));
 
         // Populate pixelRows so simulation works for both LAN and MQTT modes
         pixelRows = patternRows.map(_bitsToPixelRow);
-        document.getElementById("adv").value = frameMs;
 
         frames = [];
         patternRows.forEach((row, idx) => frames.push({ ts_ms: idx * frameMs, bits: row }));
@@ -2520,14 +2443,12 @@
         const type    = document.getElementById("pattern-type").value;
         const density = parseInt(document.getElementById("pattern-density").value) / 100;
         const numRows = Math.max(4, Math.min(32, parseInt(document.getElementById("pattern-rows").value) || 10));
-        const frameMs = Math.max(50, Math.min(500, parseInt(document.getElementById("pattern-frame-ms").value) || 80));
+        const frameMs = getAdv();
 
-        const patternRows = generatePattern(type, numRows, VALVES, density);
+        const patternRows = _applyPixelTransforms(generatePattern(type, numRows, VALVES, density));
 
         // Convert packed bits → pixelRows so startSimulation() can use them
         pixelRows = patternRows.map(_bitsToPixelRow);
-        // Sync row-interval slider to frameMs for correct timing
-        document.getElementById("adv").value = frameMs;
 
         frames = [];
         patternRows.forEach((patternRow, rowIdx) => {
@@ -2548,7 +2469,7 @@
 
         // ── MQTT mode: gửi image frames qua SET command ───────────
         if (connMode === 'mqtt') {
-          const frameMs = Math.max(50, Math.min(500, parseInt(document.getElementById("pattern-frame-ms").value) || 80));
+          const frameMs = getAdv();
           log("Gửi image frames qua MQTT (background/invert đã áp dụng)...", "log-info");
           const gapMs = Math.max(0, parseInt(document.getElementById('loop-gap-ms').value) || 0);
           _sendPatternMQTT(frames, frameMs, gapMs);

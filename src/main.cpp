@@ -141,7 +141,7 @@ void setup() {
     Serial.flush();
     g_tcp.begin();
     // Mode switching via WebSocket SET_MODE command
-    g_tcp.onModeChange([](const String& mode, const String& pattern, int sensitivity, int gapMs) {
+    g_tcp.onModeChange([](const String& mode, const String& pattern, int sensitivity, int gapMs, bool mirrorH) {
         if (mode == "sound") {
             g_mode = MODE_SOUND;
             g_sound.setSensitivity((uint8_t)sensitivity);
@@ -155,7 +155,8 @@ void setup() {
             uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
             g_clock.setRowInterval(rowMs);
             g_clock.setCycleGap((uint32_t)gapMs);
-            Serial.printf("[MODE] → CLOCK row_interval=%ums gap=%dms\n", rowMs, gapMs);
+            g_clock.setMirror(mirrorH);
+            Serial.printf("[MODE] → CLOCK row_interval=%ums gap=%dms mirror=%d\n", rowMs, gapMs, (int)mirrorH);
         } else {
             g_mode = MODE_STREAM;
             g_valve.allOff();
@@ -253,7 +254,7 @@ void setup() {
                         return (e > s) ? p.substring(s, e) : String();
                     };
                     // Parse int field with a default if not present
-                    auto parseInt_ = [](const String& p, const char* key, int def = 50) -> int {
+                    auto parseInt_ = [](const String& p, const char* key, int def) -> int {
                         String k = String("\"") + key + "\":";
                         int idx = p.indexOf(k);
                         if (idx < 0) return def;
@@ -265,6 +266,7 @@ void setup() {
                     String pattern = parseStr(payload, "pattern");
                     int sensitivity = parseInt_(payload, "sensitivity", 50);
                     int gapMs       = parseInt_(payload, "gapMs", 0);
+                    bool mirrorH    = payload.indexOf("\"mirrorH\":true") >= 0;
                     if (mode == "sound") {
                         g_mode = MODE_SOUND;
                         g_sound.setSensitivity((uint8_t)sensitivity);
@@ -278,7 +280,8 @@ void setup() {
                         uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
                         g_clock.setRowInterval(rowMs);
                         g_clock.setCycleGap((uint32_t)gapMs);
-                        Serial.printf("[MQTT] SET_MODE → CLOCK row_interval=%ums gap=%dms\n", rowMs, gapMs);
+                        g_clock.setMirror(mirrorH);
+                        Serial.printf("[MQTT] SET_MODE → CLOCK row_interval=%ums gap=%dms mirror=%d\n", rowMs, gapMs, (int)mirrorH);
                     } else {
                         g_mode = MODE_STREAM;
                         g_valve.allOff();

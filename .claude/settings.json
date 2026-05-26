@@ -7,7 +7,16 @@
       "PowerShell(git -C \"c:\\\\Users\\\\SGM\\\\Documents\\\\PlatformIO\\\\Projects\\\\waterfall\" show HEAD:src/main.cpp)",
       "PowerShell(git -C \"c:\\\\Users\\\\SGM\\\\Documents\\\\PlatformIO\\\\Projects\\\\waterfall\" show HEAD:src/main.cpp 2>&1)",
       "PowerShell(git -C \"c:\\\\Users\\\\SGM\\\\Documents\\\\PlatformIO\\\\Projects\\\\waterfall\" show HEAD:src/main.cpp 2>$null)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(pio run *)",
+      "Bash(.venv/Scripts/pio.exe run *)",
+      "Bash(echo \"exit=$?\")",
+      "Read(//tmp/**)",
+      "Bash(echo \"RC=$?\")",
+      "Bash(ls \"/c/Users/SGM/.platformio/packages/toolchain-xtensa-esp32/bin/\" 2>/dev/null | head -5 || echo \"no toolchain\" *)",
+      "Read(//c/Users/SGM/.platformio/packages/toolchain-xtensa-esp32/bin//**)",
+      "Read(//c/Users/SGM/.platformio//**)",
+      "Bash(\"/c/Users/SGM/.platformio/penv/Scripts/platformio.exe\" run *)"
     ]
   }
 }
