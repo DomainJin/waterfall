@@ -75,6 +75,10 @@ public:
     static const int CHAR_GAP   = 2;
     static const int BLANK_ROWS = 4;
     static const int MAX_CHARS  = 64;
+    // Per-character mode: each char fills most of the display width
+    static const int BIG_SCALE  = 14;               // 5 × 14 = 70 valves per char
+    static const int BIG_CHAR_W = FONT_W * BIG_SCALE;
+    static const int BIG_X_OFF  = (NUM_BOARDS * 8 - BIG_CHAR_W) / 2;
 
     void begin(ValveDriver& v) {
         _v = &v;
@@ -87,12 +91,20 @@ public:
             _chars[_numChars++] = _textFontIdx(text[i]);
         }
         if (_numChars == 0) { _chars[0] = 0; _numChars = 1; }
-        _totalW = _numChars * (CHAR_W + CHAR_GAP) - CHAR_GAP;
-        _initScroll();
+        _totalW     = _numChars * (CHAR_W + CHAR_GAP) - CHAR_GAP;
+        _charIdx    = 0;
         _currentRow = 0;
         _inGap      = false;
-        Serial.printf("[TEXT] setText: %d chars, totalW=%d, xStart=%d\n",
-                      _numChars, _totalW, _xStart);
+        _initScroll();
+        Serial.printf("[TEXT] setText: %d chars, totalW=%d, xStart=%d, perChar=%d\n",
+                      _numChars, _totalW, _xStart, (int)_perChar);
+    }
+
+    void setPerChar(bool p) {
+        _perChar    = p;
+        _charIdx    = 0;
+        _currentRow = 0;
+        _inGap      = false;
     }
 
     void setRowInterval(uint32_t ms) { _rowInterval = constrain(ms, 20, 500); }
@@ -107,7 +119,11 @@ public:
             if (now - _gapStart >= _gapMs) {
                 _inGap = false;
                 _currentRow = 0;
-                _advanceScroll();
+                if (_perChar) {
+                    _charIdx = (_charIdx + 1) % _numChars;
+                } else {
+                    _advanceScroll();
+                }
             }
             return;
         }
@@ -117,7 +133,8 @@ public:
         uint8_t bits[NUM_BOARDS] = {};
         if (_currentRow < FONT_H) {
             int renderRow = _flipV ? (FONT_H - 1 - _currentRow) : _currentRow;
-            _renderRow(renderRow, bits);
+            if (_perChar) _renderCharBig(renderRow, bits);
+            else          _renderRow(renderRow, bits);
             if (_invert) for (int i = 0; i < NUM_BOARDS; i++) bits[i] = ~bits[i];
         } else if (_invert) {
             for (int i = 0; i < NUM_BOARDS; i++) bits[i] = 0xFF;
@@ -131,7 +148,11 @@ public:
                 _gapStart = now;
             } else {
                 _currentRow = 0;
-                _advanceScroll();
+                if (_perChar) {
+                    _charIdx = (_charIdx + 1) % _numChars;
+                } else {
+                    _advanceScroll();
+                }
             }
         }
     }
@@ -147,30 +168,27 @@ private:
     bool         _flipV       = false;
     bool         _invert      = false;
     bool         _inGap       = false;
+    bool         _perChar     = false;
     uint8_t      _chars[MAX_CHARS];
     int          _numChars    = 0;
     int          _totalW      = 0;
     int          _xStart      = 0;
+    int          _charIdx     = 0;
 
-    // Marquee threshold: scroll only when text is more than 1.5× the display width
-    static const int MARQUEE_STEP = CHAR_W + CHAR_GAP;  // advance one char per cycle
+    static const int MARQUEE_STEP = CHAR_W + CHAR_GAP;
 
     void _initScroll() {
         const int VALVES = NUM_BOARDS * 8;
-        if (_totalW <= VALVES * 3 / 2) {
-            // Center — may clip a few pixels on each side for long-ish text, no scrolling
-            _xStart = (VALVES - _totalW) / 2;
-        } else {
-            // True marquee: start with text fully visible at left edge
-            _xStart = 0;
-        }
+        _xStart = (_totalW <= VALVES * 3 / 2)
+                  ? (VALVES - _totalW) / 2
+                  : 0;
     }
 
     void _advanceScroll() {
         const int VALVES = NUM_BOARDS * 8;
-        if (_totalW <= VALVES * 3 / 2) return;  // centered, no scroll
+        if (_totalW <= VALVES * 3 / 2) return;
         _xStart -= MARQUEE_STEP;
-        if (_xStart <= -_totalW) _xStart = VALVES;  // re-enter from right
+        if (_xStart <= -_totalW) _xStart = VALVES;
     }
 
     void _setValve(uint8_t* bits, int v) {
@@ -189,6 +207,18 @@ private:
             int     px   = charOff / SCALE;
             uint8_t fRow = TEXT_FONT[_chars[slot]][row];
             if ((fRow >> (FONT_W - 1 - px)) & 1) _setValve(bits, v);
+        }
+    }
+
+    // Per-character mode: render _chars[_charIdx] at large scale, centered
+    void _renderCharBig(int row, uint8_t* bits) {
+        uint8_t fRow = TEXT_FONT[_chars[_charIdx]][row];
+        for (int px = 0; px < FONT_W; px++) {
+            if ((fRow >> (FONT_W - 1 - px)) & 1) {
+                for (int s = 0; s < BIG_SCALE; s++) {
+                    _setValve(bits, BIG_X_OFF + px * BIG_SCALE + s);
+                }
+            }
         }
     }
 };

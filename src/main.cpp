@@ -144,7 +144,7 @@ void setup() {
     Serial.flush();
     g_tcp.begin();
     // Mode switching via WebSocket SET_MODE command
-    g_tcp.onModeChange([](const String& mode, const String& pattern, int sensitivity, int gapMs, bool mirrorH, bool flipV, bool invert) {
+    g_tcp.onModeChange([](const String& mode, const String& pattern, int sensitivity, int gapMs, bool mirrorH, bool flipV, bool invert, bool perChar) {
         if (mode == "sound") {
             g_mode = MODE_SOUND;
             g_sound.setSensitivity((uint8_t)sensitivity);
@@ -165,6 +165,7 @@ void setup() {
                           rowMs, gapMs, (int)mirrorH, (int)flipV, (int)invert);
         } else if (mode == "text") {
             g_mode = MODE_TEXT;
+            g_text.setPerChar(perChar);
             g_text.setText(pattern.c_str());
             uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
             g_text.setRowInterval(rowMs);
@@ -172,8 +173,8 @@ void setup() {
             g_text.setMirror(mirrorH);
             g_text.setFlipV(flipV);
             g_text.setInvert(invert);
-            Serial.printf("[MODE] → TEXT \"%s\" row=%ums gap=%dms\n",
-                          pattern.c_str(), rowMs, gapMs);
+            Serial.printf("[MODE] → TEXT \"%s\" row=%ums gap=%dms perChar=%d\n",
+                          pattern.c_str(), rowMs, gapMs, (int)perChar);
         } else {
             g_mode = MODE_STREAM;
             g_valve.allOff();
@@ -284,9 +285,10 @@ void setup() {
                     if (pattern.isEmpty()) pattern = parseStr(payload, "text");
                     int sensitivity = parseInt_(payload, "sensitivity", 50);
                     int gapMs       = parseInt_(payload, "gapMs", 0);
-                    bool mirrorH    = payload.indexOf("\"mirrorH\":true") >= 0;
-                    bool flipV      = payload.indexOf("\"flipV\":true")   >= 0;
-                    bool invert     = payload.indexOf("\"invert\":true")  >= 0;
+                    bool mirrorH    = payload.indexOf("\"mirrorH\":true")  >= 0;
+                    bool flipV      = payload.indexOf("\"flipV\":true")    >= 0;
+                    bool invert     = payload.indexOf("\"invert\":true")   >= 0;
+                    bool perChar    = payload.indexOf("\"perChar\":true")  >= 0;
                     if (mode == "sound") {
                         g_mode = MODE_SOUND;
                         g_sound.setSensitivity((uint8_t)sensitivity);
@@ -307,6 +309,7 @@ void setup() {
                                       rowMs, gapMs, (int)mirrorH, (int)flipV, (int)invert);
                     } else if (mode == "text") {
                         g_mode = MODE_TEXT;
+                        g_text.setPerChar(perChar);
                         g_text.setText(pattern.c_str());
                         uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
                         g_text.setRowInterval(rowMs);
@@ -314,8 +317,8 @@ void setup() {
                         g_text.setMirror(mirrorH);
                         g_text.setFlipV(flipV);
                         g_text.setInvert(invert);
-                        Serial.printf("[MQTT] SET_MODE → TEXT \"%s\" row=%ums gap=%dms\n",
-                                      pattern.c_str(), rowMs, gapMs);
+                        Serial.printf("[MQTT] SET_MODE → TEXT \"%s\" row=%ums gap=%dms perChar=%d\n",
+                                      pattern.c_str(), rowMs, gapMs, (int)perChar);
                     } else {
                         g_mode = MODE_STREAM;
                         g_valve.allOff();
