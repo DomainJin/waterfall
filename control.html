@@ -1110,12 +1110,10 @@
       <div class="panel-right">
         <div class="panel-preview">
           <div class="preview-hdr">
-            <span class="preview-title"
-              >80-pixel preview (cyan = valve open)</span
-            >
+            <span class="preview-title" id="preview-title">80-valve — idle</span>
             <span class="badge" id="dim-badge">—</span>
           </div>
-          <canvas id="pixel-canvas" height="80"></canvas>
+          <canvas id="pixel-canvas" height="44"></canvas>
           <!-- Live valve state — driven by ESP32 broadcast, not local simulation -->
           <div style="display:flex;justify-content:space-between;align-items:center;
                       margin-top:4px;padding:0 2px;font-size:10px;color:var(--muted);">
@@ -1260,6 +1258,10 @@
               if ((bits[v >> 3] >> (7 - (v & 7))) & 1)
                 liveColIv[v].push({ vOpen: elapsed, vClose: elapsed + rowMs * 0.85 });
             }
+            renderFramePreview(bits, `clock row ${rowIdx + 1}/${FONT_H}`);
+          } else {
+            // blank row (gap or blank ticks)
+            renderFramePreview(new Uint8Array(CHIPS), rowIdx < FONT_H + 4 ? 'clock — blank' : 'clock — gap');
           }
           // blank rows and gap ticks: no valve events pushed
           rowIdx = (rowIdx + 1) % totalTicks;
@@ -1279,6 +1281,8 @@
         document.getElementById('live-active-count').textContent = cnt + ' / ' + VALVES;
         document.getElementById('s-active').textContent = cnt;
         _renderLiveBar();
+        // In sound/clock mode the top preview tracks actual ESP32 output
+        if (_currentMode === 'sound') renderFramePreview(liveValveBits, 'sound — live');
 
         // Auto-start live sim for sound mode; feed intervals for all live modes
         if (_currentMode === 'sound' && !liveSimRunning) startLiveSimulation();
@@ -1646,6 +1650,7 @@
         sendCommand('SET_MODE', { mode: 'stream' })
           .catch(e => console.warn('stopClock:', e));
         if (_clockSimTimer) { clearInterval(_clockSimTimer); _clockSimTimer = null; }
+        renderFramePreview(new Uint8Array(CHIPS), 'clock — stopped');
         stopLiveSimulation();
         _currentMode = 'stream';
         ['stream','sound','clock'].forEach(m => {
@@ -1887,8 +1892,8 @@
       function reprocess() {
         if (lastImg) {
           pixelRows = extractRows(lastImg);
-          renderPreview();
           buildFrameSequence();
+          // renderFramePreview is called inside buildFrameSequence after building
         }
       }
 
@@ -1983,29 +1988,33 @@
         reprocess();
       }
 
-      function renderPreview() {
+      // ── Single-frame live preview (mode-aware) ──────────────────
+      // row: boolean array OR Uint8Array (MSB-first: bit7=valve0)
+      // label: short mode string shown in header
+      function renderFramePreview(row, label) {
         const canvas = document.getElementById("pixel-canvas");
-        const nR = pixelRows.length;
-        if (!nR) return;
-        const pH = Math.max(2, Math.min(8, Math.floor(280 / nR)));
+        if (!canvas) return;
         const containerW = (canvas.parentElement || document.body).clientWidth || 760;
         const pixW = Math.max(2, Math.floor(containerW / VALVES));
-        canvas.width = VALVES * pixW;
-        canvas.height = nR * pH;
+        const H = 44;
+        canvas.width  = VALVES * pixW;
+        canvas.height = H;
         const ctx = canvas.getContext("2d");
-        let open = 0;
-        for (let y = 0; y < nR; y++)
-          for (let x = 0; x < VALVES; x++) {
-            if (pixelRows[y][x]) {
-              ctx.fillStyle = "#00d4ff";
-              open++;
-            } else ctx.fillStyle = "#050f1a";
-            ctx.fillRect(x * pixW, y * pH, pixW, pH);
-          }
-        const pct = ((open / (nR * VALVES)) * 100).toFixed(1);
-        document.getElementById("dim-badge").textContent =
-          `${VALVES}×${nR} px | ${pct}% open`;
-        log(`Preview: ${pct}% valves open`, "log-ok");
+        ctx.fillStyle = "#020810";
+        ctx.fillRect(0, 0, canvas.width, H);
+        let cnt = 0;
+        for (let v = 0; v < VALVES; v++) {
+          const on = Array.isArray(row)
+            ? row[v]
+            : (row instanceof Uint8Array ? (row[v >> 3] >> (7 - (v & 7))) & 1 : 0);
+          if (on) { ctx.fillStyle = "#00d4ff"; cnt++; }
+          else      ctx.fillStyle = "#030c18";
+          ctx.fillRect(v * pixW, 3, Math.max(1, pixW - 1), H - 6);
+        }
+        const titleEl = document.getElementById("preview-title");
+        const badge   = document.getElementById("dim-badge");
+        if (titleEl && label) titleEl.textContent = `80-valve — ${label}`;
+        if (badge) badge.textContent = `${cnt}/${VALVES} open`;
       }
 
       // ── Frame sequence ────────────────────────────────────────
@@ -2056,8 +2065,6 @@
 
         document.getElementById("rows-d").value = pixelRows.length;
         document.getElementById("frames-d").value = frames.length;
-        document.getElementById("dim-badge").textContent =
-          `${VALVES}×${pixelRows.length}px | t_fall=${tfall}ms`;
         document.getElementById("btn-sim").disabled = false;
         document.getElementById("btn-send").disabled = !connected;
         log(
@@ -2065,28 +2072,21 @@
           "log-ok",
         );
         updateAnimationInfo();
+        if (pixelRows.length) renderFramePreview(pixelRows[0], `image — row 1/${pixelRows.length}`);
       }
 
       // ── Test mode ────────────────────────────────────────────
       function updateTestPreview() {
-        const canvas = document.getElementById("pixel-canvas");
         const bits = getTestBits();
-
-        // Draw test preview (1 row, VALVES columns)
-        const containerW = (canvas.parentElement || document.body).clientWidth || 760;
-        const pixW = Math.max(2, Math.floor(containerW / VALVES));
-        canvas.width = VALVES * pixW;
-        canvas.height = 40;
-        const ctx = canvas.getContext("2d");
-
+        // getTestBits() uses reversed byte order + LSB-first (daisy-chain tx format)
+        // Convert to boolean row for renderFramePreview
+        const row = new Array(VALVES);
         for (let x = 0; x < VALVES; x++) {
           const byteIdx = Math.floor(x / 8);
-          const bitIdx = x % 8;
-          const reversedByteIdx = CHIPS - 1 - byteIdx; // Account for daisy-chain byte reversal
-          const isActive = (bits[reversedByteIdx] >> bitIdx) & 1;
-          ctx.fillStyle = isActive ? "#00d4ff" : "#050f1a";
-          ctx.fillRect(x * pixW, 0, pixW, 40);
+          const reversedByteIdx = CHIPS - 1 - byteIdx;
+          row[x] = (bits[reversedByteIdx] >> (x % 8)) & 1;
         }
+        renderFramePreview(row, 'test mode');
       }
 
       function buildTestUI() {
@@ -2308,29 +2308,15 @@
         document.getElementById("pattern-density-val").textContent =
           (density * 100).toFixed(0) + "%";
 
-        // Generate small preview pattern  (8x16 for display)
-        const previewPattern = generatePattern(type, 32, VALVES, density);
-
-        // Show on preview canvas (reuse pixel-canvas)
-        const canvas = document.getElementById("pixel-canvas");
-        const pH = Math.max(2, Math.floor(280 / previewPattern.length));
-        // pixW scales so canvas always fills container width regardless of VALVES count
-        const containerW = (canvas.parentElement || document.body).clientWidth || 760;
-        const pixW = Math.max(2, Math.floor(containerW / VALVES));
-        canvas.width = VALVES * pixW;
-        canvas.height = previewPattern.length * pH;
-        const ctx = canvas.getContext("2d");
-
-        for (let y = 0; y < previewPattern.length; y++) {
-          for (let x = 0; x < VALVES; x++) {
-            const byteIdx = Math.floor(x / 8);
-            const bitIdx = x % 8;
-            const reversedByteIdx = CHIPS - 1 - byteIdx; // Account for daisy-chain byte reversal
-            const isActive = (previewPattern[y][reversedByteIdx] >> bitIdx) & 1;
-
-            ctx.fillStyle = isActive ? "#00d4ff" : "#050f1a";
-            ctx.fillRect(x * pixW, y * pH, pixW, pH);
+        // Show first row of generated pattern as live frame preview
+        const previewPattern = generatePattern(type, 8, VALVES, density);
+        if (previewPattern.length) {
+          // Convert daisy-chain TX format → boolean row for renderFramePreview
+          const firstRow = new Array(VALVES);
+          for (let v = 0; v < VALVES; v++) {
+            firstRow[v] = (previewPattern[0][CHIPS - 1 - Math.floor(v / 8)] >> (v % 8)) & 1;
           }
+          renderFramePreview(firstRow, `${type} — row 1`);
         }
         log(
           `Preview: ${type} pattern (density: ${(density * 100).toFixed(0)}%)`,
@@ -2416,7 +2402,7 @@
         patternRows.forEach((row, idx) => frames.push({ ts_ms: idx * frameMs, bits: row }));
         frames.push({ ts_ms: frames.length * frameMs, bits: new Uint8Array(CHIPS) });
 
-        renderPreview();
+        if (pixelRows.length) renderFramePreview(pixelRows[0], `pattern — row 1/${pixelRows.length}`);
         log(`Pattern: ${type} — ${numRows} rows × ${frameMs}ms = ${(numRows * frameMs / 1000).toFixed(1)}s`, "log-ok");
         updateAnimationInfo();
 
@@ -2456,7 +2442,7 @@
         });
         frames.push({ ts_ms: frames.length * frameMs, bits: new Uint8Array(CHIPS) });
 
-        renderPreview();
+        if (pixelRows.length) renderFramePreview(pixelRows[0], `pattern — row 1/${pixelRows.length}`);
         stopAll();
         log(`Simulating ${type} pattern (${numRows} rows × ${frameMs}ms)`, "log-ok");
         updateAnimationInfo();
@@ -2509,6 +2495,15 @@
         ["s-row", "s-time", "s-active", "s-fps"].forEach(
           (id) => (document.getElementById(id).textContent = "—"),
         );
+        // Restore preview: show first frame if content loaded, else blank
+        if (pixelRows.length) {
+          renderFramePreview(pixelRows[0], `row 1/${pixelRows.length} — stopped`);
+        } else {
+          const c = document.getElementById('pixel-canvas');
+          if (c) { c.height = 44; const ctx = c.getContext('2d'); ctx.fillStyle='#020810'; ctx.fillRect(0,0,c.width,c.height); }
+          const t = document.getElementById('preview-title'); if (t) t.textContent = '80-valve — idle';
+          const b = document.getElementById('dim-badge'); if (b) b.textContent = '—';
+        }
         log("Stopped", "log-warn");
       }
 
@@ -2767,6 +2762,8 @@
           }
           if (fpsCount % 4 === 0) {
             const rowNow = Math.floor(elapsed / adv);
+            const rClamped = Math.min(Math.max(0, rowNow), nRows - 1);
+            renderFramePreview(pixelRows[rClamped], `row ${rClamped + 1}/${nRows}`);
             document.getElementById("s-row").textContent =
               `${Math.min(Math.max(0, rowNow), nRows)}/${nRows}`;
             document.getElementById("s-time").textContent =
@@ -2790,6 +2787,7 @@
               simRunning = false;
               log("Playback complete ✓", "log-ok");
               document.getElementById("progress").style.width = "100%";
+              if (pixelRows.length) renderFramePreview(pixelRows[0], `row 1/${nRows} — done`);
             }
             return;
           }
