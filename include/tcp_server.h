@@ -126,6 +126,7 @@ private:
             if (!_onModeChange) return;
             String mode = _parseStrField(json, "mode");
             String pattern = _parseStrField(json, "pattern");
+            if (pattern.isEmpty()) pattern = _parseStrField(json, "text");
             int sensitivity = 50;
             int sidx = json.indexOf("\"sensitivity\":");
             if (sidx >= 0) sensitivity = json.substring(sidx + 14).toInt();

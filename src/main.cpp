@@ -12,6 +12,7 @@
 #include "mqtt_manager.h"
 #include "sound_mode.h"
 #include "clock_mode.h"
+#include "text_mode.h"
 
 // ============================================================
 //  Global objects
@@ -22,8 +23,9 @@ TcpServer     g_tcp(g_queue, g_valve);
 Scheduler     g_scheduler(g_queue, g_valve, g_tcp);
 SoundMode     g_sound;
 ClockMode     g_clock;
+TextMode      g_text;
 
-enum DeviceMode { MODE_STREAM, MODE_SOUND, MODE_CLOCK };
+enum DeviceMode { MODE_STREAM, MODE_SOUND, MODE_CLOCK, MODE_TEXT };
 DeviceMode    g_mode = MODE_STREAM;
 SDManager     g_sd;
 ConfigServer  g_cfg;
@@ -124,8 +126,9 @@ void setup() {
         }
     }
 
-    // Init clock mode
+    // Init clock and text modes
     g_clock.begin(g_valve);
+    g_text.begin(g_valve);
 
     // Setup SD Card
     Serial.printf("[SETUP] Initializing SD card...\n");
@@ -160,6 +163,17 @@ void setup() {
             g_clock.setInvert(invert);
             Serial.printf("[MODE] → CLOCK row=%ums gap=%dms mirror=%d flipV=%d inv=%d\n",
                           rowMs, gapMs, (int)mirrorH, (int)flipV, (int)invert);
+        } else if (mode == "text") {
+            g_mode = MODE_TEXT;
+            g_text.setText(pattern.c_str());
+            uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
+            g_text.setRowInterval(rowMs);
+            g_text.setCycleGap((uint32_t)gapMs);
+            g_text.setMirror(mirrorH);
+            g_text.setFlipV(flipV);
+            g_text.setInvert(invert);
+            Serial.printf("[MODE] → TEXT \"%s\" row=%ums gap=%dms\n",
+                          pattern.c_str(), rowMs, gapMs);
         } else {
             g_mode = MODE_STREAM;
             g_valve.allOff();
@@ -267,6 +281,7 @@ void setup() {
                     };
                     String mode    = parseStr(payload, "mode");
                     String pattern = parseStr(payload, "pattern");
+                    if (pattern.isEmpty()) pattern = parseStr(payload, "text");
                     int sensitivity = parseInt_(payload, "sensitivity", 50);
                     int gapMs       = parseInt_(payload, "gapMs", 0);
                     bool mirrorH    = payload.indexOf("\"mirrorH\":true") >= 0;
@@ -290,6 +305,17 @@ void setup() {
                         g_clock.setInvert(invert);
                         Serial.printf("[MQTT] SET_MODE → CLOCK row=%ums gap=%dms mirror=%d flipV=%d inv=%d\n",
                                       rowMs, gapMs, (int)mirrorH, (int)flipV, (int)invert);
+                    } else if (mode == "text") {
+                        g_mode = MODE_TEXT;
+                        g_text.setText(pattern.c_str());
+                        uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
+                        g_text.setRowInterval(rowMs);
+                        g_text.setCycleGap((uint32_t)gapMs);
+                        g_text.setMirror(mirrorH);
+                        g_text.setFlipV(flipV);
+                        g_text.setInvert(invert);
+                        Serial.printf("[MQTT] SET_MODE → TEXT \"%s\" row=%ums gap=%dms\n",
+                                      pattern.c_str(), rowMs, gapMs);
                     } else {
                         g_mode = MODE_STREAM;
                         g_valve.allOff();
@@ -353,6 +379,8 @@ void loop() {
 
     if (g_mode == MODE_CLOCK) {
         g_clock.tick();
+    } else if (g_mode == MODE_TEXT) {
+        g_text.tick();
     } else if (g_mode == MODE_STREAM) {
         g_scheduler.tick();
     }

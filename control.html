@@ -551,6 +551,35 @@
                     onclick="setMode('sound')" style="flex:1">Sound</button>
             <button class="btn btn-ghost btn-sm" id="mode-btn-clock"
                     onclick="setMode('clock')" style="flex:1">Clock</button>
+            <button class="btn btn-ghost btn-sm" id="mode-btn-text"
+                    onclick="setMode('text')" style="flex:1">Text</button>
+          </div>
+          <div id="text-opts" style="display:none;">
+            <div style="margin-bottom:8px;">
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Text</label>
+              <input type="text" id="text-input" maxlength="64"
+                placeholder="WATERFALL"
+                style="width:100%;padding:5px 8px;font-size:13px;font-family:var(--mono);background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);letter-spacing:1px;"
+                oninput="sendTextConfig()"/>
+            </div>
+            <label style="font-size:11px;color:var(--muted);">
+              Speed <span id="text-speed-val">50</span>
+            </label>
+            <input type="range" id="text-speed" min="0" max="100" value="50"
+                   oninput="document.getElementById('text-speed-val').textContent=this.value"
+                   onchange="sendTextConfig()"
+                   style="width:100%;margin-top:4px;accent-color:var(--primary);">
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+              <label style="font-size:11px;white-space:nowrap;color:var(--muted)">Gap (ms)</label>
+              <input type="number" id="text-gap-ms" min="0" max="10000" value="1000"
+                style="width:64px;padding:3px 5px;font-size:11px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);text-align:center"
+                title="Thời gian nghỉ giữa các lần hiển thị"/>
+              <span style="font-size:10px;color:var(--muted)">pause between loops</span>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:8px;">
+              <button class="btn btn-primary btn-sm" onclick="runText()" style="flex:1">▶ Run</button>
+              <button class="btn btn-ghost btn-sm"   onclick="stopText()" style="flex:1">■ Stop</button>
+            </div>
           </div>
           <div id="clock-opts" style="display:none;">
             <label style="font-size:11px;color:var(--muted);">
@@ -1238,6 +1267,124 @@
         return bits;
       }
 
+      // ── JS text font (identical to firmware text_mode.h) ────
+      const _TEXT_FONT = {
+        32:[0x00,0x00,0x00,0x00,0x00,0x00,0x00], // ' '
+        33:[0x04,0x04,0x04,0x04,0x04,0x00,0x04], // !
+        44:[0x00,0x00,0x00,0x00,0x04,0x04,0x08], // ,
+        45:[0x00,0x00,0x00,0x1F,0x00,0x00,0x00], // -
+        46:[0x00,0x00,0x00,0x00,0x00,0x00,0x04], // .
+        47:[0x00,0x01,0x02,0x04,0x08,0x10,0x00], // /
+        48:[0x0E,0x11,0x11,0x11,0x11,0x11,0x0E], // 0
+        49:[0x04,0x0C,0x04,0x04,0x04,0x04,0x0E], // 1
+        50:[0x0E,0x11,0x01,0x06,0x08,0x10,0x1F], // 2
+        51:[0x0E,0x11,0x01,0x06,0x01,0x11,0x0E], // 3
+        52:[0x02,0x06,0x0A,0x12,0x1F,0x02,0x02], // 4
+        53:[0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E], // 5
+        54:[0x0E,0x10,0x10,0x1E,0x11,0x11,0x0E], // 6
+        55:[0x1F,0x01,0x02,0x04,0x08,0x08,0x08], // 7
+        56:[0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E], // 8
+        57:[0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C], // 9
+        58:[0x00,0x04,0x04,0x00,0x04,0x04,0x00], // :
+        63:[0x0E,0x11,0x01,0x02,0x04,0x00,0x04], // ?
+        65:[0x0E,0x11,0x11,0x1F,0x11,0x11,0x11], // A
+        66:[0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E], // B
+        67:[0x0E,0x11,0x10,0x10,0x10,0x11,0x0E], // C
+        68:[0x1C,0x12,0x11,0x11,0x11,0x12,0x1C], // D
+        69:[0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F], // E
+        70:[0x1F,0x10,0x10,0x1E,0x10,0x10,0x10], // F
+        71:[0x0E,0x11,0x10,0x13,0x11,0x11,0x0E], // G
+        72:[0x11,0x11,0x11,0x1F,0x11,0x11,0x11], // H
+        73:[0x0E,0x04,0x04,0x04,0x04,0x04,0x0E], // I
+        74:[0x07,0x02,0x02,0x02,0x02,0x12,0x0C], // J
+        75:[0x11,0x12,0x14,0x18,0x14,0x12,0x11], // K
+        76:[0x10,0x10,0x10,0x10,0x10,0x10,0x1F], // L
+        77:[0x11,0x1B,0x15,0x11,0x11,0x11,0x11], // M
+        78:[0x11,0x19,0x15,0x13,0x11,0x11,0x11], // N
+        79:[0x0E,0x11,0x11,0x11,0x11,0x11,0x0E], // O
+        80:[0x1E,0x11,0x11,0x1E,0x10,0x10,0x10], // P
+        81:[0x0E,0x11,0x11,0x11,0x15,0x13,0x0F], // Q
+        82:[0x1E,0x11,0x11,0x1E,0x14,0x12,0x11], // R
+        83:[0x0E,0x11,0x10,0x0E,0x01,0x11,0x0E], // S
+        84:[0x1F,0x04,0x04,0x04,0x04,0x04,0x04], // T
+        85:[0x11,0x11,0x11,0x11,0x11,0x11,0x0E], // U
+        86:[0x11,0x11,0x11,0x11,0x0A,0x0A,0x04], // V
+        87:[0x11,0x11,0x11,0x15,0x15,0x1B,0x11], // W
+        88:[0x11,0x0A,0x04,0x04,0x04,0x0A,0x11], // X
+        89:[0x11,0x11,0x0A,0x04,0x04,0x04,0x04], // Y
+        90:[0x1F,0x01,0x02,0x04,0x08,0x10,0x1F], // Z
+      };
+
+      function _textFontRow(charCode, row) {
+        const c = (charCode >= 97 && charCode <= 122) ? charCode - 32 : charCode;
+        const d = _TEXT_FONT[c];
+        return d ? d[row] : 0;
+      }
+
+      // Render one row of text at given xStart (valve coordinate of text bitmap start)
+      function _renderTextRow(row, text, xStart) {
+        const FONT_W = 5, SCALE = 2, CHAR_W = FONT_W * SCALE, GAP = 2;
+        const bits   = new Uint8Array(CHIPS);
+        const totalW = text.length > 0 ? text.length * (CHAR_W + GAP) - GAP : 0;
+        for (let v = 0; v < VALVES; v++) {
+          const tX      = v - xStart;
+          if (tX < 0 || tX >= totalW) continue;
+          const slot    = Math.floor(tX / (CHAR_W + GAP));
+          const charOff = tX % (CHAR_W + GAP);
+          if (charOff >= CHAR_W) continue;
+          const px   = Math.floor(charOff / SCALE);
+          const fRow = _textFontRow(text.charCodeAt(slot), row);
+          if ((fRow >> (FONT_W - 1 - px)) & 1) bits[v >> 3] |= (1 << (7 - (v & 7)));
+        }
+        return bits;
+      }
+
+      function startTextLocalSim(rowMs, gapMs, text) {
+        if (_clockSimTimer) { clearInterval(_clockSimTimer); _clockSimTimer = null; }
+        if (!liveSimRunning) startLiveSimulation();
+        const FONT_W = 5, SCALE = 2, CHAR_W = FONT_W * SCALE, GAP = 2;
+        const FONT_H = 7, BLANK = 4;
+        text = text.toUpperCase();
+        const totalW     = text.length > 0 ? text.length * (CHAR_W + GAP) - GAP : 0;
+        const needsScroll = totalW > VALVES;
+        let xStart       = needsScroll ? VALVES : Math.floor((VALVES - totalW) / 2);
+        const gapTicks   = Math.ceil(gapMs / Math.max(rowMs, 1));
+        const totalTicks = FONT_H + BLANK + gapTicks;
+        let rowIdx = 0;
+        _clockSimTimer = setInterval(() => {
+          if (!liveSimRunning) { clearInterval(_clockSimTimer); _clockSimTimer = null; return; }
+          const elapsed = performance.now() - liveSimStartTime;
+          let bits;
+          if (rowIdx < FONT_H) {
+            const renderRow = optFlipV ? (FONT_H - 1 - rowIdx) : rowIdx;
+            bits = _renderTextRow(renderRow, text, xStart);
+            if (optFlipH) {
+              const fl = new Uint8Array(CHIPS);
+              for (let v = 0; v < VALVES; v++) {
+                if ((bits[v >> 3] >> (7 - (v & 7))) & 1)
+                  fl[(VALVES - 1 - v) >> 3] |= 1 << (7 - ((VALVES - 1 - v) & 7));
+              }
+              bits = fl;
+            }
+            if (optInv) bits = bits.map(b => (~b) & 0xFF);
+            renderFramePreview(bits, `text row ${rowIdx + 1}/${FONT_H}`);
+          } else {
+            bits = new Uint8Array(CHIPS);
+            if (optInv) bits.fill(0xFF);
+            renderFramePreview(bits, rowIdx < FONT_H + BLANK ? 'text — blank' : 'text — gap');
+          }
+          for (let v = 0; v < VALVES; v++) {
+            if ((bits[v >> 3] >> (7 - (v & 7))) & 1)
+              liveColIv[v].push({ vOpen: elapsed, vClose: elapsed + rowMs * 0.85 });
+          }
+          rowIdx++;
+          if (rowIdx >= totalTicks) {
+            rowIdx = 0;
+            if (needsScroll) { xStart--; if (xStart <= -totalW) xStart = VALVES; }
+          }
+        }, rowMs);
+      }
+
       // Drive liveColIv with local clock — works in LAN and MQTT modes
       // gapMs: extra blank time between cycles (mirrors firmware setCycleGap)
       function startClockLocalSim(rowMs, gapMs = 0) {
@@ -1392,6 +1539,7 @@
           optInv = document.getElementById("cb-inv").checked;
           document.getElementById("tw-inv").classList.toggle("on", optInv);
           if (_currentMode === 'clock') sendClockConfig();
+          if (_currentMode === 'text')  sendTextConfig();
         }
         if (k === "sat") {
           optSat = document.getElementById("cb-sat").checked;
@@ -1401,11 +1549,13 @@
           optFlipH = document.getElementById("cb-fliph").checked;
           document.getElementById("tw-fliph").classList.toggle("on", optFlipH);
           if (_currentMode === 'clock') sendClockConfig();
+          if (_currentMode === 'text')  sendTextConfig();
         }
         if (k === "flipv") {
           optFlipV = document.getElementById("cb-flipv").checked;
           document.getElementById("tw-flipv").classList.toggle("on", optFlipV);
           if (_currentMode === 'clock') sendClockConfig();
+          if (_currentMode === 'text')  sendTextConfig();
         }
         reprocess();
       }
@@ -1629,8 +1779,7 @@
 
       function setMode(mode) {
         _currentMode = mode;
-        // Update button states
-        ['stream','sound','clock'].forEach(m => {
+        ['stream','sound','clock','text'].forEach(m => {
           const btn = document.getElementById('mode-btn-' + m);
           if (btn) btn.className = m === mode ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
         });
@@ -1638,7 +1787,8 @@
           mode === 'sound' ? '' : 'none';
         document.getElementById('clock-opts').style.display =
           mode === 'clock' ? '' : 'none';
-        // Stop live sim when returning to stream mode
+        document.getElementById('text-opts').style.display =
+          mode === 'text' ? '' : 'none';
         if (mode === 'stream' && liveSimRunning) stopLiveSimulation();
 
         const opts = { mode };
@@ -1647,6 +1797,9 @@
           opts.sensitivity = parseInt(document.getElementById('sensitivity').value);
         } else if (mode === 'clock') {
           opts.sensitivity = parseInt(document.getElementById('clock-speed').value);
+        } else if (mode === 'text') {
+          opts.text        = document.getElementById('text-input').value || 'WATERFALL';
+          opts.sensitivity = parseInt(document.getElementById('text-speed').value);
         }
         sendCommand('SET_MODE', opts).catch(e => console.warn('SET_MODE:', e));
       }
@@ -1680,10 +1833,50 @@
         renderFramePreview(new Uint8Array(CHIPS), 'clock — stopped');
         stopLiveSimulation();
         _currentMode = 'stream';
-        ['stream','sound','clock'].forEach(m => {
+        ['stream','sound','clock','text'].forEach(m => {
           const btn = document.getElementById('mode-btn-' + m);
           if (btn) btn.className = m === 'stream' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
         });
+        document.getElementById('clock-opts').style.display = 'none';
+        document.getElementById('text-opts').style.display  = 'none';
+        document.getElementById('sound-opts').style.display = 'none';
+      }
+
+      function sendTextConfig() {
+        if (_currentMode !== 'text') return;
+        const text        = document.getElementById('text-input').value || 'WATERFALL';
+        const sensitivity = parseInt(document.getElementById('text-speed').value);
+        const gapMs       = parseInt(document.getElementById('text-gap-ms').value) || 0;
+        sendCommand('SET_MODE', {
+          mode: 'text', text, sensitivity, gapMs,
+          mirrorH: optFlipH, flipV: optFlipV, invert: optInv
+        }).catch(e => console.warn('sendTextConfig:', e));
+      }
+
+      function runText() {
+        const text        = document.getElementById('text-input').value || 'WATERFALL';
+        const sensitivity = parseInt(document.getElementById('text-speed').value);
+        const gapMs       = parseInt(document.getElementById('text-gap-ms').value) || 0;
+        sendCommand('SET_MODE', {
+          mode: 'text', text, sensitivity, gapMs,
+          mirrorH: optFlipH, flipV: optFlipV, invert: optInv
+        }).catch(e => console.warn('runText:', e));
+        const rowMs = Math.round(200 - sensitivity * 1.8);
+        startTextLocalSim(rowMs, gapMs, text);
+      }
+
+      function stopText() {
+        sendCommand('SET_MODE', { mode: 'stream' })
+          .catch(e => console.warn('stopText:', e));
+        if (_clockSimTimer) { clearInterval(_clockSimTimer); _clockSimTimer = null; }
+        renderFramePreview(new Uint8Array(CHIPS), 'text — stopped');
+        stopLiveSimulation();
+        _currentMode = 'stream';
+        ['stream','sound','clock','text'].forEach(m => {
+          const btn = document.getElementById('mode-btn-' + m);
+          if (btn) btn.className = m === 'stream' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+        });
+        document.getElementById('text-opts').style.display  = 'none';
         document.getElementById('clock-opts').style.display = 'none';
         document.getElementById('sound-opts').style.display = 'none';
       }
