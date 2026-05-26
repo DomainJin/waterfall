@@ -2828,9 +2828,15 @@
               Math.min(100, (elapsed / totalDur) * 100) + "%";
           }
           if (elapsed > totalDur) {
-            simRunning = false;
-            log("Playback complete ✓", "log-ok");
-            document.getElementById("progress").style.width = "100%";
+            if (_patternLoopActive) {
+              // MQTT loop still running — restart sim for next cycle
+              simStartTime = performance.now();
+              animId = requestAnimationFrame(tick);
+            } else {
+              simRunning = false;
+              log("Playback complete ✓", "log-ok");
+              document.getElementById("progress").style.width = "100%";
+            }
             return;
           }
           animId = requestAnimationFrame(tick);
