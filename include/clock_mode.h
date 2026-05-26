@@ -44,11 +44,25 @@ public:
     // ms between rows — controls physical text height in falling water
     void setRowInterval(uint32_t ms) { _rowInterval = constrain(ms, 20, 500); }
 
+    // ms to wait (valves off) after each complete cycle before the next
+    void setCycleGap(uint32_t ms)    { _gapMs = ms; }
+
     // Flip left↔right if digits appear mirrored on the curtain
     void setMirror(bool m) { _mirror = m; }
 
     void tick() {
         uint32_t now = millis();
+
+        // Cycle gap: hold valves off between complete displays
+        if (_inGap) {
+            if (now - _gapStart >= _gapMs) {
+                _inGap = false;
+                _currentRow = 0;
+                _refreshChars();
+            }
+            return;
+        }
+
         if ((now - _lastRow) < _rowInterval) return;
         _lastRow = now;
 
@@ -62,17 +76,25 @@ public:
 
         _currentRow++;
         if (_currentRow >= FONT_H + BLANK_ROWS) {
-            _currentRow = 0;
-            _refreshChars();  // update time at the start of each new frame
+            if (_gapMs > 0) {
+                _inGap    = true;
+                _gapStart = now;
+            } else {
+                _currentRow = 0;
+                _refreshChars();
+            }
         }
     }
 
 private:
-    ValveDriver* _v          = nullptr;
+    ValveDriver* _v           = nullptr;
     uint32_t     _rowInterval = 80;
-    uint32_t     _lastRow    = 0;
-    int          _currentRow = 0;
-    bool         _mirror     = false;
+    uint32_t     _gapMs       = 0;
+    uint32_t     _lastRow     = 0;
+    uint32_t     _gapStart    = 0;
+    int          _currentRow  = 0;
+    bool         _mirror      = false;
+    bool         _inGap       = false;
     uint8_t      _chars[NUM_CHARS] = {11,11,10,11,11};  // "--:--" until NTP syncs
 
     void _refreshChars() {

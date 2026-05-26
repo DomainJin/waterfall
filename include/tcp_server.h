@@ -32,8 +32,8 @@ public:
         Serial.printf("[WS] WebSocket server on port %d\n", TCP_PORT);
     }
 
-    // Register callback for SET_MODE commands: cb(mode, pattern, sensitivity)
-    void onModeChange(std::function<void(const String&, const String&, int)> cb) {
+    // Register callback for SET_MODE commands: cb(mode, pattern, sensitivity, gapMs)
+    void onModeChange(std::function<void(const String&, const String&, int, int)> cb) {
         _onModeChange = cb;
     }
 
@@ -85,7 +85,7 @@ private:
     bool             _hasClient  = false;
     uint32_t         _t0         = 0;
     uint32_t         _drainStart = 0;
-    std::function<void(const String&, const String&, int)> _onModeChange;
+    std::function<void(const String&, const String&, int, int)> _onModeChange;
 
     static const uint16_t RX_BUF_SIZE = FRAME_BYTES * 64;
     uint8_t  _rx[RX_BUF_SIZE];
@@ -121,18 +121,20 @@ private:
             _v.write(bits);
             Serial.printf("[WS] CMD SET %s\n", hex.c_str());
         } else if (json.indexOf("SET_MODE") >= 0) {
-            // {"cmd":"SET_MODE","mode":"sound","pattern":"ripple","sensitivity":50}
+            // {"cmd":"SET_MODE","mode":"sound","pattern":"ripple","sensitivity":50,"gapMs":1000}
             // {"cmd":"SET_MODE","mode":"stream"}
             if (!_onModeChange) return;
-            // parse mode
             String mode = _parseStrField(json, "mode");
             String pattern = _parseStrField(json, "pattern");
             int sensitivity = 50;
             int sidx = json.indexOf("\"sensitivity\":");
             if (sidx >= 0) sensitivity = json.substring(sidx + 14).toInt();
-            Serial.printf("[WS] CMD SET_MODE mode=%s pattern=%s sens=%d\n",
-                          mode.c_str(), pattern.c_str(), sensitivity);
-            _onModeChange(mode, pattern, sensitivity);
+            int gapMs = 0;
+            int gidx = json.indexOf("\"gapMs\":");
+            if (gidx >= 0) gapMs = json.substring(gidx + 8).toInt();
+            Serial.printf("[WS] CMD SET_MODE mode=%s sens=%d gap=%dms\n",
+                          mode.c_str(), sensitivity, gapMs);
+            _onModeChange(mode, pattern, sensitivity, gapMs);
         }
     }
 
