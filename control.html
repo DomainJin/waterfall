@@ -4705,6 +4705,17 @@ Note: Use Python tool for UDP:<br/>
             stat.style.color = 'var(--success)';
             stat.textContent = '✓ Flash thành công — ESP32 đang khởi động lại...';
             log('OTA: flash thành công, đợi ESP32 reboot', 'log-ok');
+            // Tự động kiểm tra version mới sau khi ESP boot lại (~5s)
+            const _otaIp = document.getElementById('ip').value.trim();
+            const _pollVer = (tries) => {
+              fetchFwVersion(_otaIp);
+              const badge = document.getElementById('fw-badge');
+              // Nếu sau 500ms badge vẫn ẩn (fetch thất bại) và còn lần thử → thử lại
+              if (tries > 0) setTimeout(() => {
+                if (badge.style.display === 'none') _pollVer(tries - 1);
+              }, 2000);
+            };
+            setTimeout(() => _pollVer(5), 5000); // đợi 5s để ESP boot xong
           } else {
             stat.style.color = 'var(--danger)';
             stat.textContent = '✗ Lỗi: ' + (xhr.responseText || xhr.status);
