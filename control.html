@@ -2934,15 +2934,14 @@
       // yTopL/yTopR: y of the top edge at the left and right boundary of the run
       // (different values create a diagonal top edge at staircase transitions).
       // bg: background colour string used to fade horizontal edges.
-      function _paintStreamBody(ctx, x0, x1, tTail, yTopL, yTopR, yBot, colW, bg) {
-        const rW     = x1 - x0;
-        const yTopMn = Math.min(yTopL, yTopR);
-        const bodyH  = yBot - yTopMn;
+      function _paintStreamBody(ctx, x0, x1, tTail, yTop, yBot, colW, bg) {
+        const rW    = x1 - x0;
+        const bodyH = yBot - yTop;
         if (bodyH <= 0.5 || rW <= 0) return;
         const isOpen = tTail <= 0;
         const edgeW  = Math.min(colW * 0.6, rW * 0.28);
 
-        // Outer glow — unclipped so it spreads softly past run edges
+        // Outer glow — spreads softly past run edges
         const gExt = colW * 0.55;
         const gx = x0 - gExt, gw = rW + gExt * 2;
         const gp  = gExt / gw;
@@ -2953,20 +2952,10 @@
         gG.addColorStop(1-gp * 0.5, 'rgba(0,165,255,0.05)');
         gG.addColorStop(1,          'rgba(0,165,255,0)');
         ctx.fillStyle = gG;
-        ctx.fillRect(gx, yTopMn, gw, bodyH);
-
-        // Trapezoid clip: diagonal top edge for smooth staircase rendering
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(x0, yTopL);
-        ctx.lineTo(x1, yTopR);
-        ctx.lineTo(x1, yBot);
-        ctx.lineTo(x0, yBot);
-        ctx.closePath();
-        ctx.clip();
+        ctx.fillRect(gx, yTop, gw, bodyH);
 
         // Body — vertical colour gradient
-        const vG = ctx.createLinearGradient(0, yTopMn, 0, yBot);
+        const vG = ctx.createLinearGradient(0, yTop, 0, yBot);
         if (isOpen) {
           vG.addColorStop(0,    'rgba(200,242,255,1)');
           vG.addColorStop(0.07, 'rgba(90,218,255,1)');
@@ -2979,20 +2968,20 @@
           vG.addColorStop(1,  'rgba(0,148,232,0.88)');
         }
         ctx.fillStyle = vG;
-        ctx.fillRect(x0, yTopMn, rW, bodyH);
+        ctx.fillRect(x0, yTop, rW, bodyH);
 
-        // Horizontal soft edges (bg-colour overlay to fade left/right boundaries)
+        // Horizontal soft edges
         const lf = ctx.createLinearGradient(x0, 0, x0 + edgeW, 0);
         lf.addColorStop(0, bg); lf.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = lf; ctx.fillRect(x0, yTopMn, edgeW, bodyH);
+        ctx.fillStyle = lf; ctx.fillRect(x0, yTop, edgeW, bodyH);
 
         const rf = ctx.createLinearGradient(x1 - edgeW, 0, x1, 0);
         rf.addColorStop(0, 'rgba(0,0,0,0)'); rf.addColorStop(1, bg);
-        ctx.fillStyle = rf; ctx.fillRect(x1 - edgeW, yTopMn, edgeW, bodyH);
+        ctx.fillStyle = rf; ctx.fillRect(x1 - edgeW, yTop, edgeW, bodyH);
 
         // Edge shimmer lines
         const shimW = Math.max(0.8, edgeW * 0.18);
-        const sG = ctx.createLinearGradient(0, yTopMn, 0, Math.min(yTopMn + 120, yBot));
+        const sG = ctx.createLinearGradient(0, yTop, 0, Math.min(yTop + 120, yBot));
         if (isOpen) {
           sG.addColorStop(0,    'rgba(225,252,255,0.9)');
           sG.addColorStop(0.35, 'rgba(175,240,255,0.5)');
@@ -3004,10 +2993,8 @@
           sG.addColorStop(1,   'rgba(110,200,255,0.15)');
         }
         ctx.fillStyle = sG;
-        ctx.fillRect(x0 + edgeW,          yTopMn, shimW, bodyH);
-        ctx.fillRect(x1 - edgeW - shimW,  yTopMn, shimW, bodyH);
-
-        ctx.restore();
+        ctx.fillRect(x0 + edgeW,         yTop, shimW, bodyH);
+        ctx.fillRect(x1 - edgeW - shimW, yTop, shimW, bodyH);
       }
 
       // Paint one leading drop for a single valve column.
@@ -3044,20 +3031,9 @@
           const v0  = vis[c];
           let   end = c;
           while (end + 1 < VALVES && vis[end+1] && vis[end+1].vOpen === v0.vOpen) end++;
-          const yTopRun = Math.max(8, v0.yTail * H);
-          const yBot    = Math.min(H, v0.yFront * H - dropR * 0.5);
-          // Diagonal top-edge: extend run upward to match higher neighbour
-          const maxD = colW * 4;
-          let yTopL = yTopRun, yTopR = yTopRun;
-          if (c > 0 && vis[c-1] && vis[c-1].vOpen !== v0.vOpen) {
-            const ny = Math.max(8, vis[c-1].yTail * H);
-            if (ny < yTopRun) yTopL = Math.max(yTopRun - maxD, ny);
-          }
-          if (end + 1 < VALVES && vis[end+1] && vis[end+1].vOpen !== v0.vOpen) {
-            const ny = Math.max(8, vis[end+1].yTail * H);
-            if (ny < yTopRun) yTopR = Math.max(yTopRun - maxD, ny);
-          }
-          runs.push({ col: c, end, v0, yTopL, yTopR, yBot });
+          const yTop = Math.max(8, v0.yTail * H);
+          const yBot = Math.min(H, v0.yFront * H - dropR * 0.5);
+          runs.push({ col: c, end, v0, yTop, yBot });
           c = end + 1;
         }
 
@@ -3065,7 +3041,7 @@
         if (blurPx) { ctx.save(); ctx.filter = `blur(${blurPx}px)`; }
         for (const r of runs) {
           _paintStreamBody(ctx, r.col * colW, (r.end + 1) * colW,
-                           r.v0.tTail, r.yTopL, r.yTopR, r.yBot, colW, bg);
+                           r.v0.tTail, r.yTop, r.yBot, colW, bg);
         }
         if (blurPx) ctx.restore();
 
