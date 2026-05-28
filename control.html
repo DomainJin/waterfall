@@ -1498,7 +1498,7 @@
           }
           for (let v = 0; v < VALVES; v++) {
             if ((bits[v >> 3] >> (7 - (v & 7))) & 1)
-              liveColIv[v].push({ vOpen: elapsed, vClose: elapsed + rowMs * 0.85 });
+              liveColIv[v].push({ vOpen: elapsed, vClose: elapsed + rowMs });
           }
           rowIdx++;
           if (rowIdx >= totalTicks) {
@@ -1547,7 +1547,7 @@
             if (optInv) bits = bits.map(b => (~b) & 0xFF);
             for (let v = 0; v < VALVES; v++) {
               if ((bits[v >> 3] >> (7 - (v & 7))) & 1)
-                liveColIv[v].push({ vOpen: elapsed, vClose: elapsed + rowMs * 0.85 });
+                liveColIv[v].push({ vOpen: elapsed, vClose: elapsed + rowMs });
             }
             displayBits = bits;
             renderFramePreview(bits, `clock row ${rowIdx + 1}/${FONT_H}`);
@@ -1556,7 +1556,7 @@
             displayBits = optInv ? new Uint8Array(CHIPS).fill(0xFF) : new Uint8Array(CHIPS);
             if (optInv) {
               for (let v = 0; v < VALVES; v++)
-                liveColIv[v].push({ vOpen: elapsed, vClose: elapsed + rowMs * 0.85 });
+                liveColIv[v].push({ vOpen: elapsed, vClose: elapsed + rowMs });
             }
             renderFramePreview(displayBits, rowIdx < FONT_H + 4 ? 'clock — blank' : 'clock — gap');
           }
@@ -2911,12 +2911,13 @@
           ctx.fillStyle = BG; ctx.fillRect(0, 0, W, 8);
 
           let activeCols = 0;
-          const vis = new Array(VALVES).fill(null);
+          const allEntries = []; // { col, vOpen, tTail, yFront, yTail }
 
           for (let col = 0; col < VALVES; col++) {
             liveColIv[col] = liveColIv[col].filter(
               iv => (elapsed - Math.max(iv.vClose === Infinity ? elapsed : iv.vClose, iv.vOpen)) < tfall * 1.4
             );
+            let colActive = false;
             for (const iv of liveColIv[col]) {
               const tFront = elapsed - iv.vOpen;
               const tTail  = iv.vClose === Infinity ? -1 : elapsed - iv.vClose;
@@ -2924,8 +2925,9 @@
               const yFN = Math.min(tFront / tfall, 1.12); const yFront = yFN * yFN;
               const yTN = tTail <= 0 ? 0 : Math.min(tTail / tfall, 1.12); const yTail = yTN * yTN;
               if (yTail >= 1 + dropR * 3 / H) continue;
-              vis[col] = { vOpen: iv.vOpen, tTail, yFront, yTail };
-              if (tTail <= 0 && yFront * H >= 0 && yFront * H < H) {
+              allEntries.push({ col, vOpen: iv.vOpen, tTail, yFront, yTail });
+              if (!colActive && tTail <= 0 && yFront * H >= 0 && yFront * H < H) {
+                colActive = true;
                 activeCols++;
                 ctx.fillStyle = "#00ccff";
                 ctx.fillRect(col * colW, 0, colW, 7);
@@ -2938,11 +2940,19 @@
                 ctx.arc(cx, H * 0.97, (tTail / 300) * colW * 2.5, 0, Math.PI * 2);
                 ctx.stroke();
               }
-              break;
             }
           }
 
-          _renderRuns(ctx, vis, colW, dropR, W, H, BG, 1.5);
+          // Render each font row as its own layer (grouped by vOpen timestamp)
+          const byVOpen = new Map();
+          for (const e of allEntries) {
+            let layer = byVOpen.get(e.vOpen);
+            if (!layer) { layer = new Array(VALVES).fill(null); byVOpen.set(e.vOpen, layer); }
+            layer[e.col] = { vOpen: e.vOpen, tTail: e.tTail, yFront: e.yFront, yTail: e.yTail };
+          }
+          for (const vis of byVOpen.values()) {
+            _renderRuns(ctx, vis, colW, dropR, W, H, BG, 1.5);
+          }
 
           fpsCount++;
           if (fpsCount % 4 === 0) {
