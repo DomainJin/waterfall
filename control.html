@@ -1175,6 +1175,51 @@
           </div><!-- /sec-body data -->
         </div>
 
+        <!-- ── Admin / OTA ─────────────────────────────────── -->
+        <div class="sec">
+          <div class="sec-title collapsible" onclick="toggleSec(this)" style="color:var(--muted)">
+            <span>🔒 Admin</span>
+            <span class="sec-chevron">▼</span>
+          </div>
+          <div class="sec-body collapsed" id="admin-body">
+
+            <!-- Locked state: password prompt -->
+            <div id="admin-locked">
+              <label style="margin-bottom:6px">Password để mở tính năng Admin</label>
+              <div style="display:flex;gap:6px">
+                <input type="password" id="admin-pw" placeholder="Enter password"
+                  style="flex:1;padding:6px 8px;font-size:12px;background:var(--card);
+                         border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)"
+                  onkeydown="if(event.key==='Enter')adminUnlock()">
+                <button class="btn btn-ghost btn-sm" onclick="adminUnlock()" style="white-space:nowrap">Unlock</button>
+              </div>
+              <div id="admin-pw-err" style="font-size:10px;color:var(--danger);margin-top:5px;display:none">Sai password</div>
+            </div>
+
+            <!-- Unlocked state: admin features -->
+            <div id="admin-unlocked" style="display:none">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <span style="font-size:10px;color:var(--success)">✓ Admin unlocked</span>
+                <button class="btn btn-ghost btn-sm" onclick="adminLock()" style="font-size:9px;padding:2px 8px">Lock</button>
+              </div>
+
+              <!-- OTA Firmware Update -->
+              <div class="subsec-label">Firmware Update (OTA)</div>
+              <label style="margin-top:6px">Chọn file firmware.bin</label>
+              <input type="file" id="ota-file" accept=".bin"
+                style="display:block;width:100%;margin:4px 0 8px;font-size:11px;color:var(--text);
+                       background:var(--card);border:1px solid var(--border);border-radius:4px;
+                       padding:5px 8px;cursor:pointer">
+              <button class="btn btn-primary btn-sm" onclick="otaUpload()" style="width:100%">⬆ Upload &amp; Flash</button>
+              <div id="ota-status" style="margin-top:8px;font-size:11px;display:none"></div>
+              <div style="margin-top:6px;background:var(--card);border-radius:3px;height:6px;overflow:hidden;display:none" id="ota-prog-wrap">
+                <div id="ota-prog-bar" style="height:100%;width:0%;background:var(--accent);transition:width .2s"></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
         <div class="sec" style="flex:1">
           <div class="sec-title">Log</div>
           <div id="log"></div>
@@ -4412,6 +4457,88 @@ Note: Use Python tool for UDP:<br/>
         a.download = name;
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      }
+
+      // ── Admin / OTA ─────────────────────────────────────────────
+      // Password checked client-side for UX only; ESP validates again server-side.
+      const ADMIN_PASSWORD = 'waterfall';
+
+      function adminUnlock() {
+        const pw = document.getElementById('admin-pw').value;
+        const err = document.getElementById('admin-pw-err');
+        if (pw !== ADMIN_PASSWORD) {
+          err.style.display = 'block';
+          document.getElementById('admin-pw').style.borderColor = 'var(--danger)';
+          return;
+        }
+        err.style.display = 'none';
+        document.getElementById('admin-locked').style.display   = 'none';
+        document.getElementById('admin-unlocked').style.display = 'block';
+        document.getElementById('admin-pw').value = '';
+        document.getElementById('admin-pw').style.borderColor = '';
+      }
+
+      function adminLock() {
+        document.getElementById('admin-locked').style.display   = 'block';
+        document.getElementById('admin-unlocked').style.display = 'none';
+        document.getElementById('ota-file').value = '';
+        const stat = document.getElementById('ota-status');
+        stat.style.display = 'none';
+        document.getElementById('ota-prog-wrap').style.display = 'none';
+      }
+
+      function otaUpload() {
+        const file = document.getElementById('ota-file').files[0];
+        if (!file) { alert('Chọn file firmware.bin trước'); return; }
+
+        const espIp = document.getElementById('ip').value.trim();
+        if (!espIp) { alert('Chưa có ESP32 IP — kết nối LAN trước'); return; }
+
+        const stat   = document.getElementById('ota-status');
+        const wrap   = document.getElementById('ota-prog-wrap');
+        const bar    = document.getElementById('ota-prog-bar');
+        const btn    = document.querySelector('[onclick="otaUpload()"]');
+
+        const fd = new FormData();
+        fd.append('password', ADMIN_PASSWORD);
+        fd.append('firmware', file);
+
+        stat.style.display  = 'block';
+        wrap.style.display  = 'block';
+        bar.style.width     = '0%';
+        stat.style.color    = 'var(--muted)';
+        stat.textContent    = 'Đang upload...';
+        btn.disabled        = true;
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `http://${espIp}:8080/update`);
+        xhr.upload.onprogress = e => {
+          if (e.lengthComputable) {
+            const pct = Math.round(e.loaded / e.total * 100);
+            bar.style.width  = pct + '%';
+            stat.textContent = `Upload ${pct}%...`;
+          }
+        };
+        xhr.onload = () => {
+          btn.disabled = false;
+          if (xhr.status === 200) {
+            bar.style.width  = '100%';
+            stat.style.color = 'var(--success)';
+            stat.textContent = '✓ Flash thành công — ESP32 đang khởi động lại...';
+            log('OTA: flash thành công, đợi ESP32 reboot', 'log-ok');
+          } else {
+            stat.style.color = 'var(--danger)';
+            stat.textContent = '✗ Lỗi: ' + (xhr.responseText || xhr.status);
+            log('OTA: ' + (xhr.responseText || 'HTTP ' + xhr.status), 'log-err');
+          }
+        };
+        xhr.onerror = () => {
+          btn.disabled     = false;
+          stat.style.color = 'var(--danger)';
+          stat.textContent = '✗ Không thể kết nối ESP32:8080';
+          log('OTA: không kết nối được ESP32:8080', 'log-err');
+        };
+        xhr.send(fd);
       }
 
       window.addEventListener("load", () => {

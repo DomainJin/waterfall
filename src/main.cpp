@@ -13,6 +13,7 @@
 #include "sound_mode.h"
 #include "clock_mode.h"
 #include "text_mode.h"
+#include "ota_server.h"
 
 // ============================================================
 //  Global objects
@@ -31,6 +32,7 @@ SDManager     g_sd;
 ConfigServer  g_cfg;
 BLEConfig     g_ble;
 MQTTManager   g_mqtt;
+OTAServer     g_ota(g_valve);
 
 // ============================================================
 //  WiFi setup
@@ -353,9 +355,15 @@ void setup() {
         Serial.flush();
     }
 
+    // Setup OTA update server (chỉ khi WiFi thành công)
+    if (WiFi.status() == WL_CONNECTED) {
+        g_ota.begin();
+    }
+
     Serial.println("\n[SETUP] ✓ Ready!");
     Serial.println("  WebSocket:  ws://<ESP32_IP>:3333");
     Serial.println("  Config UDP: <ESP32_IP>:8888");
+    Serial.println("  OTA update: http://<ESP32_IP>:8080");
     Serial.println("  BLE:        Waterfall_Config");
     Serial.println("  MQTT:       " MQTT_BROKER_HOST);
     Serial.flush();
@@ -410,6 +418,11 @@ void loop() {
     // PRIORITY 5: Handle MQTT cloud messages
     // ─────────────────────────────────────────────────────
     g_mqtt.tick();
+
+    // ─────────────────────────────────────────────────────
+    // PRIORITY 6: OTA firmware update (HTTP, port 8080)
+    // ─────────────────────────────────────────────────────
+    g_ota.tick();
 
     // ─────────────────────────────────────────────────────
     // Heartbeat: Show ESP is alive every 5 seconds
