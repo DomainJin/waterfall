@@ -544,15 +544,19 @@
         <!-- ── Mode Selector ── -->
         <div class="sec">
           <div class="sec-title">Mode</div>
-          <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <div style="display:flex;gap:6px;margin-bottom:4px;">
             <button class="btn btn-primary btn-sm" id="mode-btn-stream"
                     onclick="setMode('stream')" style="flex:1">Stream</button>
             <button class="btn btn-ghost btn-sm" id="mode-btn-sound"
                     onclick="setMode('sound')" style="flex:1">Sound</button>
             <button class="btn btn-ghost btn-sm" id="mode-btn-clock"
                     onclick="setMode('clock')" style="flex:1">Clock</button>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
             <button class="btn btn-ghost btn-sm" id="mode-btn-text"
                     onclick="setMode('text')" style="flex:1">Text</button>
+            <button class="btn btn-ghost btn-sm" id="mode-btn-effect"
+                    onclick="setMode('effect')" style="flex:1">Effects</button>
           </div>
           <div id="text-opts" style="display:none;">
             <div style="margin-bottom:8px;">
@@ -633,6 +637,30 @@
                    oninput="document.getElementById('sens-val').textContent=this.value"
                    onchange="sendSoundConfig()"
                    style="width:100%;margin-top:4px;accent-color:var(--primary);">
+          </div>
+          <div id="effects-opts" style="display:none;">
+            <label style="font-size:11px;color:var(--muted);margin-bottom:4px;display:block;">Pattern</label>
+            <div style="display:flex;gap:4px;margin-bottom:8px;">
+              <button class="btn btn-primary btn-sm" id="efx-rain"
+                      onclick="setEffectPattern('rain')"  style="flex:1;font-size:10px;">🌧 Mưa</button>
+              <button class="btn btn-ghost btn-sm"   id="efx-wave"
+                      onclick="setEffectPattern('wave')"  style="flex:1;font-size:10px;">〰 Sóng</button>
+              <button class="btn btn-ghost btn-sm"   id="efx-chase"
+                      onclick="setEffectPattern('chase')" style="flex:1;font-size:10px;">→ Đuổi</button>
+              <button class="btn btn-ghost btn-sm"   id="efx-pulse"
+                      onclick="setEffectPattern('pulse')" style="flex:1;font-size:10px;">◉ Nhịp</button>
+            </div>
+            <label style="font-size:11px;color:var(--muted);">
+              Speed <span id="efx-speed-val">50</span>
+            </label>
+            <input type="range" id="efx-speed" min="0" max="100" value="50"
+                   oninput="document.getElementById('efx-speed-val').textContent=this.value"
+                   onchange="sendEffectConfig()"
+                   style="width:100%;margin-top:4px;accent-color:var(--primary);">
+            <div style="display:flex;gap:6px;margin-top:8px;">
+              <button class="btn btn-primary btn-sm" onclick="runEffect()" style="flex:1">▶ Run</button>
+              <button class="btn btn-ghost btn-sm"   onclick="stopEffect()" style="flex:1">■ Stop</button>
+            </div>
           </div>
         </div>
 
@@ -1286,6 +1314,8 @@
       let liveSimStartTime = 0;
       let livePrevBits     = null;   // Uint8Array — previous frame for edge detection
       let _clockSimTimer   = null;   // setInterval handle for local clock driver
+      let _effectTimer     = null;   // setInterval handle for local effect driver
+      let _effectPattern   = 'rain'; // current effect pattern name
 
       // Convert packed-bits row (Uint8Array, MSB-first) → per-valve boolean array
       function _bitsToPixelRow(bits) {
@@ -1562,6 +1592,78 @@
           }
           rowIdx = (rowIdx + 1) % totalTicks;
         }, rowMs);
+      }
+
+      // ── Local effect simulation (rain / wave / chase / pulse) ────
+      function startEffectLocalSim(name, speed) {
+        if (_effectTimer) { clearInterval(_effectTimer); _effectTimer = null; }
+        if (!liveSimRunning) startLiveSimulation();
+        const TICK = 20; // ms
+
+        if (name === 'rain') {
+          const openMs  = Math.round(200 - speed * 1.2);
+          const coolMin = Math.round(400 - speed * 3.7);
+          const coolMax = Math.round(2000 - speed * 19);
+          const nextAt  = Array.from({ length: VALVES }, () =>
+            performance.now() - liveSimStartTime + Math.random() * Math.max(coolMax, 100)
+          );
+          _effectTimer = setInterval(() => {
+            if (!liveSimRunning) { clearInterval(_effectTimer); _effectTimer = null; return; }
+            const now = performance.now() - liveSimStartTime;
+            for (let col = 0; col < VALVES; col++) {
+              if (now >= nextAt[col]) {
+                liveColIv[col].push({ vOpen: now, vClose: now + openMs });
+                nextAt[col] = now + openMs + coolMin + Math.random() * Math.max(coolMax - coolMin, 10);
+              }
+            }
+          }, TICK);
+
+        } else if (name === 'wave') {
+          const periodMs  = Math.round(3000 - speed * 27);
+          const omega     = (2 * Math.PI) / periodMs;
+          const k         = (2 * Math.PI * 2) / VALVES; // 2 wave crests
+          _effectTimer = setInterval(() => {
+            if (!liveSimRunning) { clearInterval(_effectTimer); _effectTimer = null; return; }
+            const now = performance.now() - liveSimStartTime;
+            for (let col = 0; col < VALVES; col++) {
+              const shouldOpen = Math.sin(omega * now - k * col) > 0;
+              const iv = liveColIv[col].find(x => x.vClose === Infinity);
+              if (shouldOpen && !iv)  liveColIv[col].push({ vOpen: now, vClose: Infinity });
+              else if (!shouldOpen && iv) iv.vClose = now;
+            }
+          }, TICK);
+
+        } else if (name === 'chase') {
+          const periodMs = Math.round(4000 - speed * 36);
+          const bandW    = Math.round(VALVES * 0.2); // 16 columns
+          _effectTimer = setInterval(() => {
+            if (!liveSimRunning) { clearInterval(_effectTimer); _effectTimer = null; return; }
+            const now = performance.now() - liveSimStartTime;
+            const pos = Math.floor((now % periodMs) / periodMs * VALVES);
+            for (let col = 0; col < VALVES; col++) {
+              const dist = ((col - pos) % VALVES + VALVES) % VALVES;
+              const shouldOpen = dist < bandW;
+              const iv = liveColIv[col].find(x => x.vClose === Infinity);
+              if (shouldOpen && !iv)  liveColIv[col].push({ vOpen: now, vClose: Infinity });
+              else if (!shouldOpen && iv) iv.vClose = now;
+            }
+          }, TICK);
+
+        } else if (name === 'pulse') {
+          const periodMs = Math.round(3000 - speed * 27);
+          const dutyFrac = 0.40;
+          _effectTimer = setInterval(() => {
+            if (!liveSimRunning) { clearInterval(_effectTimer); _effectTimer = null; return; }
+            const now        = performance.now() - liveSimStartTime;
+            const shouldOpen = (now % periodMs) < periodMs * dutyFrac;
+            for (let col = 0; col < VALVES; col++) {
+              const iv = liveColIv[col].find(x => x.vClose === Infinity);
+              if (shouldOpen && !iv)  liveColIv[col].push({ vOpen: now, vClose: Infinity });
+              else if (!shouldOpen && iv) iv.vClose = now;
+            }
+          }, TICK);
+        }
+        log(`Effect "${name}" started (speed=${speed})`, 'log-ok');
       }
 
       function _onLiveValves(hexStr) {
@@ -1912,16 +2014,14 @@
 
       function setMode(mode) {
         _currentMode = mode;
-        ['stream','sound','clock','text'].forEach(m => {
+        ['stream','sound','clock','text','effect'].forEach(m => {
           const btn = document.getElementById('mode-btn-' + m);
           if (btn) btn.className = m === mode ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
         });
-        document.getElementById('sound-opts').style.display =
-          mode === 'sound' ? '' : 'none';
-        document.getElementById('clock-opts').style.display =
-          mode === 'clock' ? '' : 'none';
-        document.getElementById('text-opts').style.display =
-          mode === 'text' ? '' : 'none';
+        document.getElementById('sound-opts').style.display   = mode === 'sound'  ? '' : 'none';
+        document.getElementById('clock-opts').style.display   = mode === 'clock'  ? '' : 'none';
+        document.getElementById('text-opts').style.display    = mode === 'text'   ? '' : 'none';
+        document.getElementById('effects-opts').style.display = mode === 'effect' ? '' : 'none';
         if (mode === 'stream' && liveSimRunning) stopLiveSimulation();
 
         const opts = { mode };
@@ -1933,6 +2033,9 @@
         } else if (mode === 'text') {
           opts.text        = document.getElementById('text-input').value || 'WATERFALL';
           opts.sensitivity = parseInt(document.getElementById('text-speed').value);
+        } else if (mode === 'effect') {
+          opts.pattern     = _effectPattern;
+          opts.sensitivity = parseInt(document.getElementById('efx-speed').value);
         }
         sendCommand('SET_MODE', opts).catch(e => console.warn('SET_MODE:', e));
       }
@@ -1971,7 +2074,7 @@
         renderFramePreview(new Uint8Array(CHIPS), 'clock — stopped');
         stopLiveSimulation();
         _currentMode = 'stream';
-        ['stream','sound','clock','text'].forEach(m => {
+        ['stream','sound','clock','text','effect'].forEach(m => {
           const btn = document.getElementById('mode-btn-' + m);
           if (btn) btn.className = m === 'stream' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
         });
@@ -2015,7 +2118,7 @@
         renderFramePreview(new Uint8Array(CHIPS), 'text — stopped');
         stopLiveSimulation();
         _currentMode = 'stream';
-        ['stream','sound','clock','text'].forEach(m => {
+        ['stream','sound','clock','text','effect'].forEach(m => {
           const btn = document.getElementById('mode-btn-' + m);
           if (btn) btn.className = m === 'stream' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
         });
@@ -2046,6 +2149,49 @@
         const sensitivity = parseInt(document.getElementById('sensitivity').value);
         sendCommand('SET_MODE', { mode: 'sound', pattern: _soundPattern, sensitivity })
           .catch(e => console.warn('sendSoundConfig:', e));
+      }
+
+      // ── Effects mode ─────────────────────────────────────────────
+      function setEffectPattern(p) {
+        _effectPattern = p;
+        ['rain','wave','chase','pulse'].forEach(n => {
+          const btn = document.getElementById('efx-' + n);
+          if (!btn) return;
+          btn.className  = n === p ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+          btn.style.fontSize = '10px';
+        });
+        if (_currentMode === 'effect') sendEffectConfig();
+      }
+
+      function sendEffectConfig() {
+        if (_currentMode !== 'effect') return;
+        const speed = parseInt(document.getElementById('efx-speed').value);
+        sendCommand('SET_MODE', { mode: 'effect', pattern: _effectPattern, sensitivity: speed })
+          .catch(e => console.warn('sendEffectConfig:', e));
+      }
+
+      function runEffect() {
+        const speed = parseInt(document.getElementById('efx-speed').value);
+        sendCommand('SET_MODE', { mode: 'effect', pattern: _effectPattern, sensitivity: speed })
+          .catch(e => console.warn('runEffect:', e));
+        if (connMode === 'lan') {
+          if (!liveSimRunning) startLiveSimulation();
+          log('Effect running — mirroring ESP output', 'log-ok');
+        } else {
+          startEffectLocalSim(_effectPattern, speed);
+        }
+      }
+
+      function stopEffect() {
+        sendCommand('SET_MODE', { mode: 'stream' }).catch(e => console.warn('stopEffect:', e));
+        if (_effectTimer) { clearInterval(_effectTimer); _effectTimer = null; }
+        stopLiveSimulation();
+        _currentMode = 'stream';
+        ['stream','sound','clock','text','effect'].forEach(m => {
+          const btn = document.getElementById('mode-btn-' + m);
+          if (btn) btn.className = m === 'stream' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+        });
+        document.getElementById('effects-opts').style.display = 'none';
       }
       // ─────────────────────────────────────────────────────────
 
@@ -2855,6 +3001,7 @@
           animId = null;
         }
         simRunning = false;
+        if (_effectTimer) { clearInterval(_effectTimer); _effectTimer = null; }
         if (liveSimRunning) stopLiveSimulation();
         if (connMode === 'mqtt') {
           sendCommand('ALL_OFF').catch(() => {});
@@ -2974,6 +3121,7 @@
         liveSimRunning = false;
         liveColIv = null; livePrevBits = null;
         if (_clockSimTimer) { clearInterval(_clockSimTimer); _clockSimTimer = null; }
+        if (_effectTimer)   { clearInterval(_effectTimer);   _effectTimer   = null; }
         if (simCtx && simCanvas) {
           simCtx.fillStyle = "#010d1a";
           simCtx.fillRect(0, 0, simCanvas.width, simCanvas.height);

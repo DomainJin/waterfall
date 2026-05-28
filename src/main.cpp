@@ -14,6 +14,7 @@
 #include "clock_mode.h"
 #include "text_mode.h"
 #include "ota_server.h"
+#include "effect_mode.h"
 
 // ============================================================
 //  Global objects
@@ -25,8 +26,9 @@ Scheduler     g_scheduler(g_queue, g_valve, g_tcp);
 SoundMode     g_sound;
 ClockMode     g_clock;
 TextMode      g_text;
+EffectMode    g_effect;
 
-enum DeviceMode { MODE_STREAM, MODE_SOUND, MODE_CLOCK, MODE_TEXT };
+enum DeviceMode { MODE_STREAM, MODE_SOUND, MODE_CLOCK, MODE_TEXT, MODE_EFFECT };
 DeviceMode    g_mode = MODE_STREAM;
 SDManager     g_sd;
 ConfigServer  g_cfg;
@@ -177,6 +179,14 @@ void setup() {
             g_text.setInvert(invert);
             Serial.printf("[MODE] → TEXT \"%s\" row=%ums gap=%dms perChar=%d\n",
                           pattern.c_str(), rowMs, gapMs, (int)perChar);
+        } else if (mode == "effect") {
+            g_mode = MODE_EFFECT;
+            EffectPattern ep = EFX_RAIN;
+            if (pattern == "wave")  ep = EFX_WAVE;
+            else if (pattern == "chase") ep = EFX_CHASE;
+            else if (pattern == "pulse") ep = EFX_PULSE;
+            g_effect.setEffect(ep, sensitivity);
+            Serial.printf("[MODE] → EFFECT pattern=%s speed=%d\n", pattern.c_str(), sensitivity);
         } else {
             g_mode = MODE_STREAM;
             g_valve.allOff();
@@ -321,6 +331,15 @@ void setup() {
                         g_text.setInvert(invert);
                         Serial.printf("[MQTT] SET_MODE → TEXT \"%s\" row=%ums gap=%dms perChar=%d\n",
                                       pattern.c_str(), rowMs, gapMs, (int)perChar);
+                    } else if (mode == "effect") {
+                        g_mode = MODE_EFFECT;
+                        EffectPattern ep = EFX_RAIN;
+                        if (pattern == "wave")       ep = EFX_WAVE;
+                        else if (pattern == "chase") ep = EFX_CHASE;
+                        else if (pattern == "pulse") ep = EFX_PULSE;
+                        g_effect.setEffect(ep, sensitivity);
+                        Serial.printf("[MQTT] SET_MODE → EFFECT pattern=%s speed=%d\n",
+                                      pattern.c_str(), sensitivity);
                     } else {
                         g_mode = MODE_STREAM;
                         g_valve.allOff();
@@ -392,6 +411,8 @@ void loop() {
         g_clock.tick();
     } else if (g_mode == MODE_TEXT) {
         g_text.tick();
+    } else if (g_mode == MODE_EFFECT) {
+        g_effect.tick(g_valve);
     } else if (g_mode == MODE_STREAM) {
         g_scheduler.tick();
     }
