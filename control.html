@@ -2853,51 +2853,48 @@
           const W = simCanvas.width  || simCanvas.offsetWidth  || 800;
           const H = simCanvas.height || simCanvas.offsetHeight || 400;
           const colW  = W / VALVES;
-          const dropR = Math.max(2, colW * 0.44);
+          const hw    = Math.max(1.5, colW * 0.32);
+          const dropR = Math.max(2,   colW * 0.44);
           const ctx   = simCtx;
-          const BG    = '#010d1a';
 
-          ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+          ctx.fillStyle = "#010d1a"; ctx.fillRect(0, 0, W, H);
+          // grid
           ctx.strokeStyle = "rgba(0,55,90,0.22)"; ctx.lineWidth = 0.5;
           ctx.beginPath();
           for (let c = 1; c < VALVES; c++) { ctx.moveTo(c * colW, 8); ctx.lineTo(c * colW, H); }
           ctx.stroke();
-          ctx.fillStyle = BG; ctx.fillRect(0, 0, W, 8);
+          ctx.fillStyle = "#010d1a"; ctx.fillRect(0, 0, W, 8);
 
-          // Prune expired intervals and build per-column snapshot
           let activeCols = 0;
-          const vis = new Array(VALVES).fill(null);
           for (let col = 0; col < VALVES; col++) {
+            // prune intervals whose water has fully passed the bottom
             liveColIv[col] = liveColIv[col].filter(
-              iv => (elapsed - Math.max(iv.vClose === Infinity ? elapsed : iv.vClose, iv.vOpen)) < tfall * 1.4
+              iv => (elapsed - Math.max(iv.vClose, iv.vOpen)) < tfall * 1.4
             );
+            const cx = col * colW + colW * 0.5, x0 = cx - hw, sw = hw * 2;
             for (const iv of liveColIv[col]) {
               const tFront = elapsed - iv.vOpen;
               const tTail  = iv.vClose === Infinity ? -1 : elapsed - iv.vClose;
               if (tFront <= 0) continue;
-              const yFrontN = (f => f * f)(Math.min(tFront, tfall * 1.1) / tfall);
-              const yTailN  = tTail <= 0 ? 0 : (f => f * f)(Math.min(tTail, tfall * 1.1) / tfall);
-              if (yTailN >= 1 + dropR * 3 / H) continue;
-              vis[col] = { vOpen: iv.vOpen, tTail, yFront: yFrontN, yTail: yTailN };
-              if (tTail <= 0 && yFrontN * H >= 0 && yFrontN * H < H) {
+              const yFront = yOf(tFront);
+              const yTail  = tTail <= 0 ? 0 : yOf(tTail);
+              if (yTail >= H + dropR * 3) continue;
+              if (tTail <= 0 && yFront >= 0 && yFront < H) {
                 activeCols++;
                 ctx.fillStyle = "#00ccff";
                 ctx.fillRect(col * colW, 0, colW, 7);
               }
-              // Splash ripple on close
+              const yTop = Math.max(8, Math.min(yTail, H));
+              const yBot = Math.min(H, yFront - dropR * 0.5);
+              _paintStream(ctx, cx, x0, sw, colW, tTail, yTop, yBot, yFront, dropR, H);
               if (tTail >= 0 && tTail < 300) {
-                const cx = col * colW + colW * 0.5;
                 const sR = (tTail / 300) * colW * 2.5;
-                ctx.strokeStyle = `rgba(0,200,255,${(1 - tTail / 300).toFixed(2)})`;
+                ctx.strokeStyle = `rgba(0,200,255,${1 - tTail / 300})`;
                 ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.arc(cx, H * 0.97, sR, 0, Math.PI * 2); ctx.stroke();
               }
-              break;
             }
           }
-
-          _renderRuns(ctx, vis, colW, dropR, W, H, BG);
-
           fpsCount++;
           if (fpsCount % 4 === 0) {
             const dt = now - lastFpsTime;
@@ -2929,124 +2926,88 @@
       // ─────────────────────────────────────────────────────────
 
       // ── Shared stream painter ────────────────────────────────
-      // Paint a merged stream body spanning x0→x1 with soft curved edges.
-      // bg = background fill color string (used to fade outer edges).
-      function _paintStreamBody(ctx, x0, x1, tTail, yTop, yBot, colW, bg) {
-        const rW    = x1 - x0;
+      function _paintStream(ctx, cx, x0, sw, colW, tTail, yTop, yBot, yFront, dropR, H) {
         const bodyH = yBot - yTop;
-        if (bodyH <= 0.5 || rW <= 0) return;
         const isOpen = tTail <= 0;
-        // Edge fade: half a column wide, capped to 30% of run width so thin runs still look good
-        const edgeW = Math.min(colW * 0.65, rW * 0.3);
 
-        // Outer atmospheric glow (wider than stream)
-        const gExt = colW * 0.5;
-        const gx = x0 - gExt, gw = rW + gExt * 2;
-        const gGrad = ctx.createLinearGradient(gx, 0, gx + gw, 0);
-        const gp = gExt / gw;
-        gGrad.addColorStop(0,         'rgba(0,165,255,0)');
-        gGrad.addColorStop(gp * 0.5,  'rgba(0,165,255,0.05)');
-        gGrad.addColorStop(0.5,       'rgba(0,165,255,0.09)');
-        gGrad.addColorStop(1-gp*0.5,  'rgba(0,165,255,0.05)');
-        gGrad.addColorStop(1,         'rgba(0,165,255,0)');
-        ctx.fillStyle = gGrad;
-        ctx.fillRect(gx, yTop, gw, bodyH);
+        if (bodyH > 0.5) {
+          // Outer glow behind stream
+          const glowW = sw + colW * 0.7;
+          const gx = cx - glowW / 2;
+          const gGrad = ctx.createLinearGradient(gx, 0, gx + glowW, 0);
+          gGrad.addColorStop(0,   'rgba(0,165,255,0)');
+          gGrad.addColorStop(0.2, 'rgba(0,165,255,0.07)');
+          gGrad.addColorStop(0.5, 'rgba(0,165,255,0.12)');
+          gGrad.addColorStop(0.8, 'rgba(0,165,255,0.07)');
+          gGrad.addColorStop(1,   'rgba(0,165,255,0)');
+          ctx.fillStyle = gGrad;
+          ctx.fillRect(gx, yTop, glowW, bodyH);
 
-        // Stream body — vertical color gradient, full run width
-        const vGrad = ctx.createLinearGradient(0, yTop, 0, yBot);
-        if (isOpen) {
-          vGrad.addColorStop(0,    'rgba(200,242,255,1)');
-          vGrad.addColorStop(0.07, 'rgba(90,218,255,1)');
-          vGrad.addColorStop(0.4,  'rgba(0,188,255,1)');
-          vGrad.addColorStop(1,    'rgba(0,140,228,1)');
-        } else {
-          const ff = Math.min(0.92, Math.min(bodyH * 0.55, 24) / Math.max(bodyH, 1));
-          vGrad.addColorStop(0,  'rgba(0,188,255,0)');
-          vGrad.addColorStop(ff, 'rgba(0,188,255,0.96)');
-          vGrad.addColorStop(1,  'rgba(0,148,232,0.88)');
-        }
-        ctx.fillStyle = vGrad;
-        ctx.fillRect(x0, yTop, rW, bodyH);
-
-        // Soft edge curves: paint bg-color gradient over left and right edges
-        const lf = ctx.createLinearGradient(x0, 0, x0 + edgeW, 0);
-        lf.addColorStop(0, bg); lf.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = lf;
-        ctx.fillRect(x0, yTop, edgeW, bodyH);
-
-        const rf = ctx.createLinearGradient(x1 - edgeW, 0, x1, 0);
-        rf.addColorStop(0, 'rgba(0,0,0,0)'); rf.addColorStop(1, bg);
-        ctx.fillStyle = rf;
-        ctx.fillRect(x1 - edgeW, yTop, edgeW, bodyH);
-
-        // Edge shimmer lines just inside the fade region
-        const shimW = Math.max(0.8, edgeW * 0.18);
-        const shimGrad = ctx.createLinearGradient(0, yTop, 0, Math.min(yTop + 120, yBot));
-        if (isOpen) {
-          shimGrad.addColorStop(0,    'rgba(225,252,255,0.9)');
-          shimGrad.addColorStop(0.35, 'rgba(175,240,255,0.5)');
-          shimGrad.addColorStop(1,    'rgba(110,200,255,0.12)');
-        } else {
-          const ff2 = Math.min(0.92, 20 / Math.max(bodyH, 1));
-          shimGrad.addColorStop(0,   'rgba(175,240,255,0)');
-          shimGrad.addColorStop(ff2, 'rgba(175,240,255,0.7)');
-          shimGrad.addColorStop(1,   'rgba(110,200,255,0.15)');
-        }
-        ctx.fillStyle = shimGrad;
-        ctx.fillRect(x0 + edgeW, yTop, shimW, bodyH);
-        ctx.fillRect(x1 - edgeW - shimW, yTop, shimW, bodyH);
-      }
-
-      // Paint a single leading drop for one valve column.
-      function _paintStreamDrop(ctx, cx, yFront, dropR, H) {
-        if (yFront < -dropR || yFront >= H + dropR * 2) return;
-        const dy = Math.min(H + dropR, yFront);
-        const gr = dropR * 1.8;
-        const halo = ctx.createRadialGradient(cx, dy, dropR * 0.35, cx, dy, gr);
-        halo.addColorStop(0, 'rgba(0,185,255,0.22)');
-        halo.addColorStop(1, 'rgba(0,150,255,0)');
-        ctx.fillStyle = halo;
-        ctx.beginPath(); ctx.arc(cx, dy, gr, 0, Math.PI * 2); ctx.fill();
-        const dGrad = ctx.createRadialGradient(
-          cx - dropR * 0.22, dy - dropR * 0.22, dropR * 0.04, cx, dy, dropR);
-        dGrad.addColorStop(0,    'rgba(175,238,255,1)');
-        dGrad.addColorStop(0.42, 'rgba(0,192,255,1)');
-        dGrad.addColorStop(1,    'rgba(0,130,225,0.92)');
-        ctx.fillStyle = dGrad;
-        ctx.beginPath(); ctx.arc(cx, dy, dropR, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = 'rgba(228,252,255,0.95)';
-        ctx.beginPath();
-        ctx.arc(cx - dropR * 0.28, dy - dropR * 0.3, dropR * 0.31, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Given vis[] and canvas dims, find runs and render merged bodies + drops.
-      function _renderRuns(ctx, vis, colW, dropR, W, H, bg) {
-        let col = 0;
-        while (col < VALVES) {
-          if (!vis[col]) { col++; continue; }
-          const v0 = vis[col];
-          let end = col;
-          // Extend run: same vOpen = same origin frame
-          while (end + 1 < VALVES && vis[end+1] && vis[end+1].vOpen === v0.vOpen) end++;
-
-          const x0   = col * colW;
-          const x1   = (end + 1) * colW;
-          const yTop = Math.max(8, v0.yTail * H);
-          const yBot = Math.min(H, v0.yFront * H - dropR * 0.5);
-          _paintStreamBody(ctx, x0, x1, v0.tTail, yTop, yBot, colW, bg);
-
-          // Drops: all columns for short runs, every N for wide runs (avoid halo pile-up)
-          const runLen = end - col + 1;
-          const step   = Math.max(1, Math.round(runLen / 5));
-          for (let c = col; c <= end; c += step) {
-            _paintStreamDrop(ctx, c * colW + colW * 0.5, vis[c].yFront * H, dropR, H);
+          // Stream body
+          const grad = ctx.createLinearGradient(cx, yTop, cx, yBot);
+          if (isOpen) {
+            grad.addColorStop(0,    'rgba(200,242,255,1)');
+            grad.addColorStop(0.07, 'rgba(90,218,255,1)');
+            grad.addColorStop(0.4,  'rgba(0,188,255,1)');
+            grad.addColorStop(1,    'rgba(0,140,228,1)');
+          } else {
+            const fadeH = Math.min(bodyH * 0.55, 24);
+            const ff    = Math.min(0.92, fadeH / Math.max(bodyH, 1));
+            grad.addColorStop(0,  'rgba(0,188,255,0)');
+            grad.addColorStop(ff, 'rgba(0,188,255,0.96)');
+            grad.addColorStop(1,  'rgba(0,148,232,0.88)');
           }
-          if ((end - col) % step !== 0) {  // always include last column drop
-            _paintStreamDrop(ctx, end * colW + colW * 0.5, vis[end].yFront * H, dropR, H);
-          }
+          ctx.fillStyle = grad;
+          ctx.fillRect(x0, yTop, sw, bodyH);
 
-          col = end + 1;
+          // Edge shimmer
+          if (sw > 3) {
+            const shimW = Math.max(0.8, sw * 0.16);
+            const shimGrad = ctx.createLinearGradient(cx, yTop, cx, Math.min(yTop + 120, yBot));
+            if (isOpen) {
+              shimGrad.addColorStop(0,   'rgba(225,252,255,0.9)');
+              shimGrad.addColorStop(0.35,'rgba(175,240,255,0.5)');
+              shimGrad.addColorStop(1,   'rgba(110,200,255,0.12)');
+            } else {
+              const ff2 = Math.min(0.92, 20 / Math.max(bodyH, 1));
+              shimGrad.addColorStop(0,    'rgba(175,240,255,0)');
+              shimGrad.addColorStop(ff2,  'rgba(175,240,255,0.7)');
+              shimGrad.addColorStop(1,    'rgba(110,200,255,0.15)');
+            }
+            ctx.fillStyle = shimGrad;
+            ctx.fillRect(x0, yTop, shimW, bodyH);
+            ctx.fillRect(x0 + sw - shimW, yTop, shimW, bodyH);
+          }
+        }
+
+        // Leading drop
+        if (yFront >= -dropR && yFront < H + dropR * 2) {
+          const dy = Math.min(H + dropR, yFront);
+
+          // Glow halo
+          const gr = dropR * 1.8;
+          const halo = ctx.createRadialGradient(cx, dy, dropR * 0.35, cx, dy, gr);
+          halo.addColorStop(0, 'rgba(0,185,255,0.22)');
+          halo.addColorStop(1, 'rgba(0,150,255,0)');
+          ctx.fillStyle = halo;
+          ctx.beginPath(); ctx.arc(cx, dy, gr, 0, Math.PI * 2); ctx.fill();
+
+          // Drop body
+          const dGrad = ctx.createRadialGradient(
+            cx - dropR * 0.22, dy - dropR * 0.22, dropR * 0.04,
+            cx, dy, dropR
+          );
+          dGrad.addColorStop(0,    'rgba(175,238,255,1)');
+          dGrad.addColorStop(0.42, 'rgba(0,192,255,1)');
+          dGrad.addColorStop(1,    'rgba(0,130,225,0.92)');
+          ctx.fillStyle = dGrad;
+          ctx.beginPath(); ctx.arc(cx, dy, dropR, 0, Math.PI * 2); ctx.fill();
+
+          // Specular highlight
+          ctx.fillStyle = 'rgba(228,252,255,0.95)';
+          ctx.beginPath();
+          ctx.arc(cx - dropR * 0.28, dy - dropR * 0.3, dropR * 0.31, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
 
@@ -3118,8 +3079,7 @@
           }
 
           const ctx = simCtx;
-          const BG = '#020810';
-          ctx.fillStyle = BG;
+          ctx.fillStyle = "#020810";
           ctx.fillRect(0, 0, W, H);
 
           ctx.strokeStyle = "rgba(0,55,90,0.22)";
@@ -3133,33 +3093,34 @@
           ctx.fillStyle = "#010d1a";
           ctx.fillRect(0, 0, W, 8);
 
+          const hw = Math.max(1.5, colW * 0.32);
           const dropR = Math.max(2, colW * 0.44);
           let activeCols = 0;
 
-          // Snapshot: pick first visible interval per column
-          const vis = new Array(VALVES).fill(null);
           for (let col = 0; col < VALVES; col++) {
+            const cx = col * colW + colW * 0.5,
+              x0 = cx - hw,
+              sw = hw * 2;
             for (const iv of colIv[col]) {
               const tFront = elapsed - iv.vOpen;
-              const tTail  = elapsed - iv.vClose;
+              const tTail = elapsed - iv.vClose;
               if (tFront <= 0) continue;
               if (tTail > tfall * 1.3) continue;
-              const yFrontN = (f => f * f)(Math.min(tFront / tfall, 1.1));
-              const yTailN  = tTail <= 0 ? 0 : (f => f * f)(Math.min(tTail / tfall, 1.1));
-              if (yTailN >= 1 + dropR * 3 / H) continue;
-              vis[col] = { vOpen: iv.vOpen, tTail, yFront: yFrontN, yTail: yTailN };
-              if (tTail <= 0 && yFrontN * H >= 0 && yFrontN * H < H) {
+              const yFront = yOf(tFront);
+              const yTail = tTail <= 0 ? 0 : yOf(tTail);
+              if (yTail >= H + dropR * 3) continue;
+              if (tTail <= 0 && yFront >= 0 && yFront < H) {
                 activeCols++;
                 ctx.fillStyle = "#00ccff";
                 ctx.fillRect(col * colW, 0, colW, 7);
               }
-              // Splash ripple on impact
-              const yFrontPx = yFrontN * H;
-              if (yFrontPx >= H - 6 && yFrontPx < H + 70) {
-                const cx  = col * colW + colW * 0.5;
-                const age = (yFrontPx - H + 6) / 60;
-                const sr  = age * colW * 3;
-                const sa  = Math.max(0, 0.6 - age);
+              const yTop = Math.max(8, Math.min(yTail, H));
+              const yBot = Math.min(H, yFront - dropR * 0.5);
+              _paintStream(ctx, cx, x0, sw, colW, tTail, yTop, yBot, yFront, dropR, H);
+              if (yFront >= H - 6 && yFront < H + 70) {
+                const age = (yFront - H + 6) / 60,
+                  sr = age * colW * 3,
+                  sa = Math.max(0, 0.6 - age);
                 if (sr > 0.5 && sa > 0.01) {
                   ctx.strokeStyle = `rgba(0,200,255,${sa.toFixed(2)})`;
                   ctx.lineWidth = 1.2;
@@ -3168,11 +3129,8 @@
                   ctx.stroke();
                 }
               }
-              break;
             }
           }
-
-          _renderRuns(ctx, vis, colW, dropR, W, H, BG);
 
           fpsCount++;
           if (now - lastFpsTime >= 1000) {
