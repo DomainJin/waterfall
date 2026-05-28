@@ -675,7 +675,7 @@
             </div>
             <img id="thumb-preview"/>
             <div class="subsec-label" style="margin-top:14px">Pattern</div>
-            <select id="pattern-type" style="width:100%;padding:7px 9px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:5px;font-size:11px;margin-bottom:8px" onchange="updatePatternPreview()">
+            <select id="pattern-type" style="width:100%;padding:7px 9px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:5px;font-size:11px" onchange="updatePatternPreview()">
               <option value="spiral">Spiral (Xoắn ốc)</option>
               <option value="wave">Wave (Uốn lượn)</option>
               <option value="striped">Striped (Xen kẻ)</option>
@@ -684,15 +684,6 @@
               <option value="diagonal">Diagonal (Chéo)</option>
               <option value="pulse">Pulse (Nhịp)</option>
             </select>
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-              <label style="font-size:11px;white-space:nowrap;color:var(--muted);margin:0">Density</label>
-              <input type="range" id="pattern-density" min="0" max="100" value="50" style="flex:1" oninput="document.getElementById('pattern-density-val').textContent=this.value+'%';updatePatternPreview()"/>
-              <span class="val-label" id="pattern-density-val" style="min-width:32px;margin:0">50%</span>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center">
-              <label style="font-size:11px;white-space:nowrap;color:var(--muted);margin:0">Rows</label>
-              <input type="number" id="pattern-rows" min="4" max="32" value="10" style="width:52px;padding:3px 5px;font-size:11px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);text-align:center"/>
-            </div>
           </div>
         </div>
 
@@ -752,6 +743,16 @@
               style="width:64px;padding:3px 5px;font-size:11px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);text-align:center"
               title="Wait time between loop cycles"/>
             <span style="font-size:10px;color:var(--muted)">between cycles</span>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <label style="font-size:11px;white-space:nowrap;color:var(--muted);margin:0">Density</label>
+            <input type="range" id="pattern-density" min="0" max="100" value="50" style="flex:1" oninput="document.getElementById('pattern-density-val').textContent=this.value+'%';updatePatternPreview()"/>
+            <span class="val-label" id="pattern-density-val" style="min-width:32px;margin:0">50%</span>
+          </div>
+          <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
+            <label style="font-size:11px;white-space:nowrap;color:var(--muted);margin:0">Rows</label>
+            <input type="number" id="pattern-rows" min="4" max="200" value="10" style="width:64px;padding:3px 5px;font-size:11px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);text-align:center" title="Vertical size / animation length (frames)"/>
+            <span style="font-size:10px;color:var(--muted)">frames tall</span>
           </div>
           <div style="margin-top:8px" class="row2">
             <div><label>Rows</label><input type="text" id="rows-d" value="—" readonly style="opacity:0.6"/></div>
