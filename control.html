@@ -2810,6 +2810,7 @@
           animId = null;
         }
         simRunning = false;
+        if (liveSimRunning) stopLiveSimulation();
         if (connMode === 'mqtt') {
           sendCommand('ALL_OFF').catch(() => {});
         } else {
@@ -2931,8 +2932,6 @@
       // ── Shared stream painters ───────────────────────────────
 
       // Paint merged stream body for a run spanning x0→x1.
-      // yTopL/yTopR: y of the top edge at the left and right boundary of the run
-      // (different values create a diagonal top edge at staircase transitions).
       // bg: background colour string used to fade horizontal edges.
       function _paintStreamBody(ctx, x0, x1, tTail, yTop, yBot, colW, bg) {
         const rW    = x1 - x0;
@@ -4307,6 +4306,7 @@ Note: Use Python tool for UDP:<br/>
 
       function previewCreator() {
         if (!creatorRows.length) { log('Creator trống — vẽ vài row trước', 'log-warn'); return; }
+        stopAll();
         pixelRows = creatorRows.map(_creatorBitsToPixelRow);
         buildFrameSequence();
         startSimulation();
@@ -4317,7 +4317,7 @@ Note: Use Python tool for UDP:<br/>
         if (!creatorRows.length) { log('Creator trống', 'log-warn'); return; }
         pixelRows = creatorRows.map(_creatorBitsToPixelRow);
         buildFrameSequence();
-        if (!connected) { log('Chưa kết nối ESP — preview only', 'log-warn'); startSimulation(); return; }
+        if (!connected) { log('Chưa kết nối ESP — preview only', 'log-warn'); stopAll(); startSimulation(); return; }
         stopAll();
         log('Sending creator frames to ESP32...', 'log-info');
         sendReset();
