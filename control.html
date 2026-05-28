@@ -779,6 +779,41 @@
           </div>
         </div>
 
+        <!-- ─── Frame Creator ─── -->
+        <div class="sec">
+          <div class="sec-title sec-toggle" onclick="toggleSec('creator-body',this)">Creator <span style="font-size:10px;opacity:.5">▼</span></div>
+          <div class="sec-body" id="creator-body" style="display:none">
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:7px">
+              <button class="btn btn-ghost btn-sm" onclick="loadCreatorFromPixelRows()" style="font-size:10px;flex:1">← Image</button>
+              <button class="btn btn-ghost btn-sm" onclick="loadCreatorFromPattern()" style="font-size:10px;flex:1">← Pattern</button>
+              <label class="btn btn-ghost btn-sm" style="font-size:10px;flex:1;cursor:pointer;text-align:center">
+                ↑ Import<input type="file" accept=".json,.wfx" style="display:none" onchange="importCreatorFile(this.files[0])">
+              </label>
+            </div>
+            <div style="position:relative;border:1px solid var(--border);border-radius:4px;background:#010d1a;overflow:hidden">
+              <div id="creator-wrap" style="max-height:220px;overflow-y:auto;overflow-x:hidden">
+                <canvas id="creator-canvas" style="display:block;width:100%;image-rendering:pixelated;cursor:crosshair"></canvas>
+              </div>
+              <div style="position:absolute;top:2px;right:3px;font-size:8px;color:#446;pointer-events:none;font-family:var(--mono)" id="creator-pos"></div>
+            </div>
+            <div style="display:flex;gap:4px;margin-top:5px;align-items:center">
+              <span style="font-size:10px;color:var(--muted);flex:1;font-family:var(--mono)" id="creator-info">0 rows</span>
+              <button class="btn btn-ghost btn-sm" onclick="addCreatorRow()" title="Add blank row" style="font-size:11px;padding:2px 7px">+</button>
+              <button class="btn btn-ghost btn-sm" onclick="dupCreatorRow()" title="Duplicate selected" style="font-size:11px;padding:2px 7px">⧉</button>
+              <button class="btn btn-ghost btn-sm" onclick="delCreatorRow()" title="Delete selected" style="font-size:11px;padding:2px 7px">✕</button>
+            </div>
+            <div style="display:flex;gap:4px;margin-top:6px">
+              <button class="btn btn-primary btn-sm" onclick="previewCreator()" style="flex:1;font-size:11px">▶ Preview</button>
+              <button class="btn btn-ghost btn-sm" id="btn-creator-send" onclick="sendCreatorToESP()" style="flex:1;font-size:11px">▲ Send</button>
+            </div>
+            <div style="display:flex;gap:4px;margin-top:4px">
+              <button class="btn btn-ghost btn-sm" onclick="exportCreatorJSON()" style="flex:1;font-size:11px">↓ .json</button>
+              <button class="btn btn-ghost btn-sm" onclick="exportCreatorBin()" style="flex:1;font-size:11px">↓ .bin</button>
+              <button class="btn btn-ghost btn-sm" onclick="clearAllCreatorRows()" style="flex:1;font-size:11px;color:var(--danger)">Clear</button>
+            </div>
+          </div>
+        </div>
+
         <!-- ─── Physics ─── -->
         <div class="sec">
           <div class="sec-title">Physics</div>
@@ -1496,11 +1531,15 @@
         document.getElementById('live-active-count').textContent = cnt + ' / ' + VALVES;
         document.getElementById('s-active').textContent = cnt;
         _renderLiveBar();
-        // In sound/clock mode the top preview tracks actual ESP32 output
-        if (_currentMode === 'sound') renderFramePreview(liveValveBits, 'sound — live');
+        // Top preview always tracks actual ESP32 output when connected
+        renderFramePreview(liveValveBits, `ESP live — ${_currentMode}`);
 
-        // Auto-start live sim for sound mode; feed intervals for all live modes
-        if (_currentMode === 'sound' && !liveSimRunning) startLiveSimulation();
+        // Auto-start live sim for any live mode receiving ESP data
+        if (!liveSimRunning) startLiveSimulation();
+        // If local clock/text sim timer is running alongside ESP data in LAN mode, stop it
+        if (_clockSimTimer && connMode === 'lan') {
+          clearInterval(_clockSimTimer); _clockSimTimer = null;
+        }
         if (liveColIv && liveSimRunning) {
           const elapsed = performance.now() - liveSimStartTime;
           for (let v = 0; v < VALVES; v++) {
@@ -1871,7 +1910,12 @@
         }).catch(e => console.warn('runClock:', e));
         // rowMs mirrors firmware: map(sensitivity, 0,100, 200,20)
         const rowMs = Math.round(200 - sensitivity * 1.8);
-        startClockLocalSim(rowMs, gapMs);
+        if (connMode === 'lan') {
+          if (!liveSimRunning) startLiveSimulation();
+          log('Clock running — mirroring ESP output', 'log-ok');
+        } else {
+          startClockLocalSim(rowMs, gapMs);
+        }
       }
 
       function stopClock() {
@@ -1910,7 +1954,12 @@
           mirrorH: optFlipH, flipV: optFlipV, invert: optInv
         }).catch(e => console.warn('runText:', e));
         const rowMs = Math.round(200 - sensitivity * 1.8);
-        startTextLocalSim(rowMs, gapMs, text);
+        if (connMode === 'lan') {
+          if (!liveSimRunning) startLiveSimulation();
+          log('Text running — mirroring ESP output', 'log-ok');
+        } else {
+          startTextLocalSim(rowMs, gapMs, text);
+        }
       }
 
       function stopText() {
@@ -4030,10 +4079,299 @@ Note: Use Python tool for UDP:<br/>
         return new Promise((r) => setTimeout(r, ms));
       }
 
+      // ── Visual Frame Creator ─────────────────────────────────
+      let creatorRows   = [];   // Array<Uint8Array(CHIPS)> MSB-first
+      let creatorSelRow = 0;
+      const CC_H = 9;           // cell height px (before zoom)
+      let _creatorDragState = null;  // {row, painting: 0|1}
+
+      function _initCreator() {
+        const canvas = document.getElementById('creator-canvas');
+        if (!canvas) return;
+        _drawCreatorCanvas();
+
+        function _getCell(e) {
+          const rect = canvas.getBoundingClientRect();
+          const scaleX = canvas.width  / rect.width;
+          const scaleY = canvas.height / rect.height;
+          const px = (e.clientX - rect.left)  * scaleX;
+          const py = (e.clientY - rect.top)   * scaleY;
+          const col = Math.floor(px / (canvas.width / VALVES));
+          const row = Math.floor(py / CC_H);
+          return { col, row };
+        }
+
+        canvas.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          canvas.setPointerCapture(e.pointerId);
+          if (!creatorRows.length) addCreatorRow();
+          const { col, row } = _getCell(e);
+          if (row < 0 || row >= creatorRows.length) return;
+          creatorSelRow = row;
+          const byteIdx = col >> 3;
+          const bit     = 7 - (col & 7);
+          const curOn   = (creatorRows[row][byteIdx] >> bit) & 1;
+          _creatorDragState = { painting: curOn ? 0 : 1 };
+          if (curOn) creatorRows[row][byteIdx] &= ~(1 << bit);
+          else       creatorRows[row][byteIdx] |=  (1 << bit);
+          _drawCreatorCanvas();
+        });
+
+        canvas.addEventListener('pointermove', e => {
+          if (!_creatorDragState) return;
+          const { col, row } = _getCell(e);
+          if (row < 0 || row >= creatorRows.length) return;
+          creatorSelRow = row;
+          const byteIdx = col >> 3;
+          const bit     = 7 - (col & 7);
+          if (_creatorDragState.painting === 1) creatorRows[row][byteIdx] |=  (1 << bit);
+          else                                   creatorRows[row][byteIdx] &= ~(1 << bit);
+          _drawCreatorCanvas();
+          // update pos indicator
+          const pos = document.getElementById('creator-pos');
+          if (pos) pos.textContent = `v${col + 1} r${row + 1}`;
+        });
+
+        canvas.addEventListener('pointerup', () => { _creatorDragState = null; });
+        canvas.addEventListener('pointerleave', () => {
+          const pos = document.getElementById('creator-pos');
+          if (pos) pos.textContent = '';
+        });
+      }
+
+      function _drawCreatorCanvas() {
+        const canvas = document.getElementById('creator-canvas');
+        if (!canvas) return;
+        const nRows = Math.max(creatorRows.length, 1);
+        canvas.width  = VALVES;
+        canvas.height = nRows * CC_H;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#010d1a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (let r = 0; r < creatorRows.length; r++) {
+          const yTop = r * CC_H;
+          // Row highlight
+          if (r === creatorSelRow) {
+            ctx.fillStyle = 'rgba(80,120,200,0.18)';
+            ctx.fillRect(0, yTop, VALVES, CC_H);
+          }
+          // Row separator
+          ctx.fillStyle = '#0e1e30';
+          ctx.fillRect(0, yTop + CC_H - 1, VALVES, 1);
+
+          for (let v = 0; v < VALVES; v++) {
+            const byteIdx = v >> 3;
+            const bit     = 7 - (v & 7);
+            const on      = (creatorRows[r][byteIdx] >> bit) & 1;
+            if (on) {
+              ctx.fillStyle = '#00bfff';
+              ctx.fillRect(v, yTop + 1, 1, CC_H - 2);
+            }
+          }
+        }
+        // Selection outline
+        if (creatorRows.length) {
+          ctx.strokeStyle = 'rgba(100,160,255,0.6)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(0.5, creatorSelRow * CC_H + 0.5, VALVES - 1, CC_H - 1);
+        }
+        document.getElementById('creator-info').textContent =
+          `${creatorRows.length} rows · row ${creatorSelRow + 1} sel`;
+      }
+
+      function addCreatorRow(after) {
+        const idx = (after !== undefined) ? after : (creatorRows.length ? creatorSelRow + 1 : 0);
+        creatorRows.splice(idx, 0, new Uint8Array(CHIPS));
+        creatorSelRow = idx;
+        _drawCreatorCanvas();
+      }
+
+      function dupCreatorRow() {
+        if (!creatorRows.length) return;
+        const copy = new Uint8Array(creatorRows[creatorSelRow]);
+        creatorRows.splice(creatorSelRow + 1, 0, copy);
+        creatorSelRow++;
+        _drawCreatorCanvas();
+      }
+
+      function delCreatorRow() {
+        if (!creatorRows.length) return;
+        creatorRows.splice(creatorSelRow, 1);
+        if (creatorSelRow >= creatorRows.length) creatorSelRow = Math.max(0, creatorRows.length - 1);
+        _drawCreatorCanvas();
+      }
+
+      function clearAllCreatorRows() {
+        creatorRows = [];
+        creatorSelRow = 0;
+        _drawCreatorCanvas();
+      }
+
+      function loadCreatorFromPixelRows() {
+        if (!pixelRows.length) { log('Chưa có image — load ảnh trước', 'log-warn'); return; }
+        creatorRows = pixelRows.map(pr => {
+          const b = new Uint8Array(CHIPS);
+          for (let v = 0; v < VALVES; v++) if (pr[v]) b[v >> 3] |= (1 << (7 - (v & 7)));
+          return b;
+        });
+        creatorSelRow = 0;
+        _drawCreatorCanvas();
+        log(`Creator loaded ${creatorRows.length} rows from image`, 'log-ok');
+      }
+
+      function loadCreatorFromPattern() {
+        if (!frames.length) { log('Chưa có frames — run pattern trước', 'log-warn'); return; }
+        // Rebuild MSB-first rows from frames (skip the all-off sentinel at end)
+        creatorRows = [];
+        for (let i = 0; i < frames.length - 1; i++) {
+          const f = frames[i];
+          const b = new Uint8Array(CHIPS);
+          // frames[].bits is daisy-chain: dc[CHIPS-1-floor(v/8)] |= 1<<(v%8)
+          // reverse back to MSB-first
+          for (let v = 0; v < VALVES; v++) {
+            const dcByte = CHIPS - 1 - (v >> 3);
+            if ((f.bits[dcByte] >> (v & 7)) & 1) b[v >> 3] |= (1 << (7 - (v & 7)));
+          }
+          creatorRows.push(b);
+        }
+        creatorSelRow = 0;
+        _drawCreatorCanvas();
+        log(`Creator loaded ${creatorRows.length} rows from pattern frames`, 'log-ok');
+      }
+
+      // MSB-first Uint8Array(CHIPS) → boolean pixel row[VALVES]
+      function _creatorBitsToPixelRow(bits) {
+        const row = new Array(VALVES);
+        for (let v = 0; v < VALVES; v++) row[v] = (bits[v >> 3] >> (7 - (v & 7))) & 1;
+        return row;
+      }
+
+      // MSB-first Uint8Array(CHIPS) → daisy-chain Uint8Array(CHIPS)
+      function _creatorBitsToDaisyChain(bits) {
+        const dc = new Uint8Array(CHIPS);
+        for (let v = 0; v < VALVES; v++) {
+          if ((bits[v >> 3] >> (7 - (v & 7))) & 1) {
+            dc[CHIPS - 1 - (v >> 3)] |= (1 << (v & 7));
+          }
+        }
+        return dc;
+      }
+
+      function previewCreator() {
+        if (!creatorRows.length) { log('Creator trống — vẽ vài row trước', 'log-warn'); return; }
+        pixelRows = creatorRows.map(_creatorBitsToPixelRow);
+        buildFrameSequence();
+        startSimulation();
+        log(`Creator preview: ${creatorRows.length} rows`, 'log-ok');
+      }
+
+      function sendCreatorToESP() {
+        if (!creatorRows.length) { log('Creator trống', 'log-warn'); return; }
+        pixelRows = creatorRows.map(_creatorBitsToPixelRow);
+        buildFrameSequence();
+        if (!connected) { log('Chưa kết nối ESP — preview only', 'log-warn'); startSimulation(); return; }
+        stopAll();
+        log('Sending creator frames to ESP32...', 'log-info');
+        sendReset();
+        setTimeout(() => {
+          sendStart();
+          frames.forEach(f => sendRaw(mkFrame(f.ts_ms, f.bits)));
+          log(`Sent ${frames.length} creator frames`, 'log-ok');
+          startSimulation();
+        }, 80);
+      }
+
+      function exportCreatorJSON() {
+        if (!creatorRows.length) { log('Creator trống', 'log-warn'); return; }
+        const adv = getAdv(), h = getH();
+        const tfall = Math.round(Math.sqrt((2 * h) / G) * 1000);
+        const data = {
+          version: 1,
+          valves: VALVES,
+          rows: creatorRows.length,
+          advMs: adv,
+          tfallMs: tfall,
+          frames: creatorRows.map((bits, i) => ({
+            ts_ms: Math.max(0, i * adv - tfall),
+            bits: Array.from(bits).map(b => b.toString(16).padStart(2,'0')).join('')
+          }))
+        };
+        _download(new Blob([JSON.stringify(data, null, 2)], {type:'application/json'}),
+                  'animation.wfx.json');
+        log(`Exported ${creatorRows.length} rows to JSON`, 'log-ok');
+      }
+
+      function exportCreatorBin() {
+        if (!creatorRows.length) { log('Creator trống', 'log-warn'); return; }
+        const adv = getAdv(), h = getH();
+        const tfall = Math.round(Math.sqrt((2 * h) / G) * 1000);
+        const FRAME_BYTES = 4 + CHIPS;
+        // TS_RESET + TS_START + N data frames + all-off terminator
+        const nFrames = creatorRows.length + 3;
+        const buf = new Uint8Array(nFrames * FRAME_BYTES);
+        let off = 0;
+
+        function writeFrame(ts32, dcBits) {
+          buf[off++] = ts32 & 0xFF;
+          buf[off++] = (ts32 >> 8)  & 0xFF;
+          buf[off++] = (ts32 >> 16) & 0xFF;
+          buf[off++] = (ts32 >> 24) & 0xFF;
+          for (let i = 0; i < CHIPS; i++) buf[off++] = dcBits[i];
+        }
+
+        writeFrame(0xFFFFFFFF, new Uint8Array(CHIPS)); // TS_RESET
+        writeFrame(0xFFFFFFFE, new Uint8Array(CHIPS)); // TS_START
+        creatorRows.forEach((bits, i) => {
+          const ts = Math.max(0, i * adv - tfall) >>> 0;
+          writeFrame(ts, _creatorBitsToDaisyChain(bits));
+        });
+        // all-off terminator
+        const lastTs = (Math.max(0, (creatorRows.length - 1) * adv - tfall) + adv * 2) >>> 0;
+        writeFrame(lastTs, new Uint8Array(CHIPS));
+
+        _download(new Blob([buf], {type:'application/octet-stream'}), 'animation.wfx.bin');
+        log(`Exported ${creatorRows.length} rows to .bin (${buf.length} bytes)`, 'log-ok');
+      }
+
+      function importCreatorFile(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (!data.frames || !Array.isArray(data.frames)) throw new Error('Invalid format');
+            creatorRows = data.frames.map(f => {
+              const b = new Uint8Array(CHIPS);
+              const hex = f.bits || '';
+              for (let i = 0; i < CHIPS; i++) {
+                b[i] = parseInt(hex.substring(i*2, i*2+2) || '0', 16) || 0;
+              }
+              return b;
+            });
+            creatorSelRow = 0;
+            _drawCreatorCanvas();
+            log(`Imported ${creatorRows.length} rows from ${file.name}`, 'log-ok');
+          } catch (err) {
+            log('Import failed: ' + err.message, 'log-err');
+          }
+        };
+        reader.readAsText(file);
+      }
+
+      function _download(blob, name) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      }
+
       window.addEventListener("load", () => {
         initSim();
         updateConfig();
         initDataManagement();
+        _initCreator();
         log("=== Water Curtain Controller ===", "log-ok");
 
         // ── Detect access path và cấu hình UI ────────────────────
