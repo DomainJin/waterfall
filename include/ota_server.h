@@ -4,6 +4,7 @@
 #include <WebServer.h>
 #include <Update.h>
 #include "valve_driver.h"
+#include "config.h"
 
 // ============================================================
 //  OTAServer — nhận firmware update qua HTTP POST (port 8080)
@@ -20,6 +21,16 @@ public:
     explicit OTAServer(ValveDriver& v) : _v(v), _http(8080) {}
 
     void begin() {
+        // Firmware version query — used by control.html to verify OTA success
+        _http.on("/version", HTTP_GET, [this]() {
+            _addCors();
+            _http.send(200, "application/json",
+                       "{\"fw\":\"" FW_VERSION "\"}");
+        });
+        _http.on("/version", HTTP_OPTIONS, [this]() {
+            _addCors(); _http.send(204);
+        });
+
         // CORS preflight
         _http.on("/update", HTTP_OPTIONS, [this]() {
             _addCors();

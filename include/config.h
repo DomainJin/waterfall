@@ -66,6 +66,10 @@
 // ── Microphone ───────────────────────────────────────────────
 #define MIC_PIN  34   // GPIO34 — ADC input-only, connects to electret mic (+) via 4.7kΩ pull-up
 
+// ── Firmware version ─────────────────────────────────────────
+// Tăng số này mỗi lần build để xác nhận OTA thành công
+#define FW_VERSION "1.1.0"
+
 // ── MQTT Cloud (để trống nếu không dùng) ─────────────────────
 // Điền thông tin VPS cloud của bạn vào đây
 #define MQTT_BROKER_HOST  "waterfall.domainjin.io.vn"

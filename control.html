@@ -504,6 +504,7 @@
       <span style="font-family:var(--serif);font-size:15px;font-weight:400;color:var(--on-dark);letter-spacing:-0.2px;">Water Curtain</span>
       <span id="mode-badge" class="badge" style="display:none;">—</span>
       <span id="conn-label" style="font-size:11px;color:var(--on-dark-s);margin-left:auto;">Disconnected</span>
+      <span id="fw-badge" onclick="fetchFwVersion(document.getElementById('ip').value.trim())" title="Click để refresh" style="display:none;cursor:pointer;font-size:10px;padding:2px 6px;background:rgba(0,204,255,0.12);border:1px solid rgba(0,204,255,0.25);border-radius:3px;color:#00ccff;font-family:var(--mono);">—</span>
       <a href="home.html" style="font-size:11px;color:var(--on-dark-s);text-decoration:none;opacity:.6;">← Home</a>
     </div>
 
@@ -2195,6 +2196,23 @@
       }
       // ─────────────────────────────────────────────────────────
 
+      function fetchFwVersion(ip) {
+        if (!ip) return;
+        const badge = document.getElementById('fw-badge');
+        badge.textContent = '…';
+        badge.style.display = '';
+        fetch(`http://${ip}:8080/version`, { signal: AbortSignal.timeout(4000) })
+          .then(r => r.json())
+          .then(j => {
+            const v = j.fw || '?';
+            badge.textContent = 'FW ' + v;
+            log(`Firmware: v${v}`, 'log-ok');
+          })
+          .catch(() => {
+            badge.style.display = 'none';
+          });
+      }
+
       // sendCommand: routes to WebSocket text (LAN) or /api/cmd (MQTT)
       async function sendCommand(cmd, opts = {}) {
         const payload = Object.assign({ cmd }, opts);
@@ -2288,6 +2306,9 @@
         const port = parseInt(document.getElementById("port").value);
         const wsUrl = `ws://${ip}:${port}`;
         log(`Thử kết nối LAN: ${wsUrl}...`);
+
+        // Fetch firmware version via HTTP independently — no WebSocket needed
+        fetchFwVersion(ip);
 
         if (ws) { ws.close(); ws = null; }
         try {
