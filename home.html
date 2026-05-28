@@ -142,6 +142,7 @@
                         <div>🌐 IP: <b>${d.ip || '—'}</b></div>
                         <div>⏰ Last seen: ${timeAgo(d.last_seen)}</div>
                         <div>📶 Status: <b>${d.online ? 'Online' : 'Offline'}</b></div>
+                        <div id="fwv-${d.name}" style="font-size:11px;color:#888;margin-top:2px;">💾 FW: ${d.online && d.ip ? '…' : '—'}</div>
                     </div>
                     <div class="device-card-footer">
                         ${d.ip ? `<button class="btn btn-primary" style="flex:1;padding:5px;font-size:11px"
@@ -153,6 +154,20 @@
             }).join('')}</div>`;
 
             container.innerHTML = html;
+
+            // Fetch firmware version for each online device independently via HTTP
+            list.filter(d => d.online && d.ip).forEach(d => {
+                fetch(`http://${d.ip}:8080/version`, { signal: AbortSignal.timeout(3000) })
+                    .then(r => r.json())
+                    .then(j => {
+                        const el = document.getElementById(`fwv-${d.name}`);
+                        if (el) el.innerHTML = `💾 FW: <b style="color:#4caf8a">${j.fw || '?'}</b>`;
+                    })
+                    .catch(() => {
+                        const el = document.getElementById(`fwv-${d.name}`);
+                        if (el) el.textContent = '💾 FW: —';
+                    });
+            });
         }
 
         function fetchDevices() {
