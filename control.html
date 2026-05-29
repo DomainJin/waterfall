@@ -641,7 +641,7 @@
           </div>
           <div id="effects-opts" style="display:none;">
             <label style="font-size:11px;color:var(--muted);margin-bottom:4px;display:block;">Pattern</label>
-            <div style="display:flex;gap:4px;margin-bottom:8px;">
+            <div style="display:flex;gap:4px;margin-bottom:4px;">
               <button class="btn btn-primary btn-sm" id="efx-rain"
                       onclick="setEffectPattern('rain')"  style="flex:1;font-size:10px;">🌧 Mưa</button>
               <button class="btn btn-ghost btn-sm"   id="efx-wave"
@@ -650,6 +650,20 @@
                       onclick="setEffectPattern('chase')" style="flex:1;font-size:10px;">→ Đuổi</button>
               <button class="btn btn-ghost btn-sm"   id="efx-pulse"
                       onclick="setEffectPattern('pulse')" style="flex:1;font-size:10px;">◉ Nhịp</button>
+            </div>
+            <div style="display:flex;gap:4px;margin-bottom:4px;">
+              <button class="btn btn-ghost btn-sm" id="efx-heart"
+                      onclick="setEffectPattern('heart')"   style="flex:1;font-size:10px;">❤ Tim</button>
+              <button class="btn btn-ghost btn-sm" id="efx-star"
+                      onclick="setEffectPattern('star')"    style="flex:1;font-size:10px;">⭐ Sao</button>
+              <button class="btn btn-ghost btn-sm" id="efx-music"
+                      onclick="setEffectPattern('music')"   style="flex:1;font-size:10px;">🎵 Nốt</button>
+              <button class="btn btn-ghost btn-sm" id="efx-diamond"
+                      onclick="setEffectPattern('diamond')" style="flex:1;font-size:10px;">♦ Kim</button>
+            </div>
+            <div style="display:flex;gap:4px;margin-bottom:8px;">
+              <button class="btn btn-ghost btn-sm" id="efx-script"
+                      onclick="setEffectPattern('script')" style="width:100%;font-size:10px;">🎬 Script ~2 phút</button>
             </div>
             <label style="font-size:11px;color:var(--muted);">
               Speed <span id="efx-speed-val">50</span>
@@ -1316,7 +1330,12 @@
       let livePrevBits     = null;   // Uint8Array — previous frame for edge detection
       let _clockSimTimer   = null;   // setInterval handle for local clock driver
       let _effectTimer     = null;   // setInterval handle for local effect driver
+      let _scriptTimeout   = null;   // setTimeout handle for script sequencer
       let _effectPattern   = 'rain'; // current effect pattern name
+
+      // Shape-scan shared state (used by heart/star/music/diamond sims)
+      let _shapeRow = 0, _shapeNextRowAt = 0;
+      let _shapeInGap = false, _shapeGapEnd = 0;
 
       // Convert packed-bits row (Uint8Array, MSB-first) → per-valve boolean array
       function _bitsToPixelRow(bits) {
@@ -1595,7 +1614,66 @@
         }, rowMs);
       }
 
-      // ── Local effect simulation (rain / wave / chase / pulse) ────
+      // ── Shape scan helper ────────────────────────────────────────
+      // shapeFn(col, row, nRows) → bool. rowMs ~ speed.
+      function _startShapeSimHelper(shapeFn, nRows, speed) {
+        if (!liveSimRunning) startLiveSimulation();
+        const rowMs = Math.round(200 - speed * 1.4);
+        const gapMs = 2000;
+        _shapeRow = 0;
+        _shapeNextRowAt = performance.now() - liveSimStartTime;
+        _shapeInGap = false;
+        _shapeGapEnd = 0;
+
+        _effectTimer = setInterval(() => {
+          if (!liveSimRunning) { clearInterval(_effectTimer); _effectTimer = null; return; }
+          const now = performance.now() - liveSimStartTime;
+          if (_shapeInGap) {
+            if (now >= _shapeGapEnd) { _shapeInGap = false; _shapeRow = 0; _shapeNextRowAt = now; }
+            return;
+          }
+          if (now < _shapeNextRowAt) return;
+          for (let col = 0; col < VALVES; col++) {
+            if (shapeFn(col, _shapeRow, nRows))
+              liveColIv[col].push({ vOpen: _shapeNextRowAt, vClose: _shapeNextRowAt + rowMs });
+          }
+          _shapeRow++;
+          _shapeNextRowAt += rowMs;
+          if (_shapeRow >= nRows) {
+            _shapeInGap = true;
+            _shapeGapEnd = _shapeNextRowAt + gapMs;
+          }
+        }, 20);
+      }
+
+      // ── Script sequencer ─────────────────────────────────────────
+      function startScriptLocalSim() {
+        const STEPS = [
+          { name: 'rain',    dur: 12000, speed: 40 },
+          { name: 'heart',   dur: 15000, speed: 50 },
+          { name: 'wave',    dur: 10000, speed: 55 },
+          { name: 'star',    dur: 15000, speed: 50 },
+          { name: 'chase',   dur: 10000, speed: 65 },
+          { name: 'music',   dur: 15000, speed: 50 },
+          { name: 'pulse',   dur:  8000, speed: 70 },
+          { name: 'diamond', dur: 10000, speed: 50 },
+          { name: 'rain',    dur: 10000, speed: 75 },
+          { name: 'wave',    dur:  8000, speed: 75 },
+          { name: 'heart',   dur: 12000, speed: 40 },
+        ];
+        let idx = 0;
+        function runStep() {
+          if (!liveSimRunning) return;
+          const s = STEPS[idx];
+          log(`Script step ${idx + 1}/${STEPS.length}: ${s.name} (${s.dur/1000}s)`, 'log-ok');
+          startEffectLocalSim(s.name, s.speed);
+          idx = (idx + 1) % STEPS.length;
+          _scriptTimeout = setTimeout(runStep, s.dur);
+        }
+        runStep();
+      }
+
+      // ── Local effect simulation ──────────────────────────────────
       function startEffectLocalSim(name, speed) {
         if (_effectTimer) { clearInterval(_effectTimer); _effectTimer = null; }
         if (!liveSimRunning) startLiveSimulation();
@@ -1663,6 +1741,59 @@
               else if (!shouldOpen && iv) iv.vClose = now;
             }
           }, TICK);
+        }
+        } else if (name === 'heart') {
+          _startShapeSimHelper((col, row, nRows) => {
+            const ny = 1.1 - 2.0 * row / (nRows - 1);
+            const nx = ((col - VALVES / 2) / (VALVES / 4)) * 0.75;
+            const a  = nx*nx + ny*ny - 1;
+            return a*a*a - nx*nx * ny*ny*ny <= 0;
+          }, 9, speed);
+
+        } else if (name === 'star') {
+          _startShapeSimHelper((col, row, nRows) => {
+            const ny = 0.90 - 1.80 * row / (nRows - 1);
+            const nx = (col - VALVES / 2) / (VALVES / 2.2);
+            const r  = Math.sqrt(nx*nx + ny*ny);
+            if (r < 0.01) return true;
+            let theta = Math.atan2(nx, ny);
+            if (theta < 0) theta += 2 * Math.PI;
+            const sf   = theta / (Math.PI / 5);
+            const isec = Math.floor(sf) % 10;
+            const t    = sf - Math.floor(sf);
+            const R = 0.92, ri = 0.38;
+            const rb = (isec % 2 === 0) ? R - (R-ri)*t : ri + (R-ri)*t;
+            return r <= rb;
+          }, 10, speed);
+
+        } else if (name === 'music') {
+          const NR = [
+            [[44,46],[47,62]],  // 0: stem + flag
+            [[44,46],[47,56]],  // 1
+            [[44,46],null],     // 2-5: stem
+            [[44,46],null],
+            [[44,46],null],
+            [[44,46],null],
+            [[30,48],null],     // 6: head top
+            [[28,52],null],     // 7
+            [[28,54],null],     // 8
+            [[30,52],null],     // 9
+          ];
+          _startShapeSimHelper((col, row) => {
+            if (row >= NR.length) return false;
+            return NR[row].some(r => r && col >= r[0] && col < r[1]);
+          }, 10, speed);
+
+        } else if (name === 'diamond') {
+          _startShapeSimHelper((col, row, nRows) => {
+            const mid = (nRows - 1) / 2;
+            const hw  = (1 - Math.abs(row - mid) / mid) * (VALVES / 2.5);
+            return Math.abs(col - VALVES / 2) <= hw;
+          }, 10, speed);
+
+        } else if (name === 'script') {
+          startScriptLocalSim();
+          return; // startScriptLocalSim manages its own logging
         }
         log(`Effect "${name}" started (speed=${speed})`, 'log-ok');
       }
@@ -2155,7 +2286,7 @@
       // ── Effects mode ─────────────────────────────────────────────
       function setEffectPattern(p) {
         _effectPattern = p;
-        ['rain','wave','chase','pulse'].forEach(n => {
+        ['rain','wave','chase','pulse','heart','star','music','diamond','script'].forEach(n => {
           const btn = document.getElementById('efx-' + n);
           if (!btn) return;
           btn.className  = n === p ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
@@ -2173,7 +2304,9 @@
 
       function runEffect() {
         const speed = parseInt(document.getElementById('efx-speed').value);
-        sendCommand('SET_MODE', { mode: 'effect', pattern: _effectPattern, sensitivity: speed })
+        // For script, send first-step pattern to ESP; ESP handles its own sequencing
+        const espPat = (_effectPattern === 'script') ? 'script' : _effectPattern;
+        sendCommand('SET_MODE', { mode: 'effect', pattern: espPat, sensitivity: speed })
           .catch(e => console.warn('runEffect:', e));
         if (connMode === 'lan') {
           if (!liveSimRunning) startLiveSimulation();
@@ -2185,7 +2318,8 @@
 
       function stopEffect() {
         sendCommand('SET_MODE', { mode: 'stream' }).catch(e => console.warn('stopEffect:', e));
-        if (_effectTimer) { clearInterval(_effectTimer); _effectTimer = null; }
+        if (_scriptTimeout) { clearTimeout(_scriptTimeout); _scriptTimeout = null; }
+        if (_effectTimer)   { clearInterval(_effectTimer);  _effectTimer   = null; }
         stopLiveSimulation();
         _currentMode = 'stream';
         ['stream','sound','clock','text','effect'].forEach(m => {
@@ -3022,6 +3156,7 @@
           animId = null;
         }
         simRunning = false;
+        if (_scriptTimeout) { clearTimeout(_scriptTimeout); _scriptTimeout = null; }
         if (_effectTimer) { clearInterval(_effectTimer); _effectTimer = null; }
         if (liveSimRunning) stopLiveSimulation();
         if (connMode === 'mqtt') {
@@ -3141,6 +3276,7 @@
       function stopLiveSimulation() {
         liveSimRunning = false;
         liveColIv = null; livePrevBits = null;
+        if (_scriptTimeout) { clearTimeout(_scriptTimeout); _scriptTimeout = null; }
         if (_clockSimTimer) { clearInterval(_clockSimTimer); _clockSimTimer = null; }
         if (_effectTimer)   { clearInterval(_effectTimer);   _effectTimer   = null; }
         if (simCtx && simCanvas) {

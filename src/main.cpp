@@ -184,9 +184,14 @@ void setup() {
         } else if (mode == "effect") {
             g_mode = MODE_EFFECT;
             EffectPattern ep = EFX_RAIN;
-            if (pattern == "wave")  ep = EFX_WAVE;
-            else if (pattern == "chase") ep = EFX_CHASE;
-            else if (pattern == "pulse") ep = EFX_PULSE;
+            if      (pattern == "wave")    ep = EFX_WAVE;
+            else if (pattern == "chase")   ep = EFX_CHASE;
+            else if (pattern == "pulse")   ep = EFX_PULSE;
+            else if (pattern == "heart")   ep = EFX_HEART;
+            else if (pattern == "star")    ep = EFX_STAR;
+            else if (pattern == "music")   ep = EFX_MUSIC;
+            else if (pattern == "diamond") ep = EFX_DIAMOND;
+            else if (pattern == "script")  ep = EFX_SCRIPT;
             g_effect.setEffect(ep, sensitivity);
             Serial.printf("[MODE] → EFFECT pattern=%s speed=%d\n", pattern.c_str(), sensitivity);
         } else {
@@ -336,9 +341,14 @@ void setup() {
                     } else if (mode == "effect") {
                         g_mode = MODE_EFFECT;
                         EffectPattern ep = EFX_RAIN;
-                        if (pattern == "wave")       ep = EFX_WAVE;
-                        else if (pattern == "chase") ep = EFX_CHASE;
-                        else if (pattern == "pulse") ep = EFX_PULSE;
+                        if      (pattern == "wave")    ep = EFX_WAVE;
+                        else if (pattern == "chase")   ep = EFX_CHASE;
+                        else if (pattern == "pulse")   ep = EFX_PULSE;
+                        else if (pattern == "heart")   ep = EFX_HEART;
+                        else if (pattern == "star")    ep = EFX_STAR;
+                        else if (pattern == "music")   ep = EFX_MUSIC;
+                        else if (pattern == "diamond") ep = EFX_DIAMOND;
+                        else if (pattern == "script")  ep = EFX_SCRIPT;
                         g_effect.setEffect(ep, sensitivity);
                         Serial.printf("[MQTT] SET_MODE → EFFECT pattern=%s speed=%d\n",
                                       pattern.c_str(), sensitivity);
