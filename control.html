@@ -813,6 +813,9 @@
             <button class="btn btn-ghost btn-sm" onclick="simulatePatternOnly()" style="flex:1">Sim Pattern</button>
           </div>
           <div style="margin-top:4px">
+            <button class="btn btn-ghost btn-sm" onclick="loadPaintFrames()" style="width:100%">🎨 Load Paint Frames</button>
+          </div>
+          <div style="margin-top:4px">
             <button class="btn btn-danger btn-sm" onclick="stopAll()" style="width:100%">■ Stop / All off</button>
           </div>
           <div class="progress-bar" style="margin-top:6px"><div class="progress-fill" id="progress"></div></div>
@@ -3118,6 +3121,34 @@
         log(`Simulating ${type} pattern (${numRows} rows × ${frameMs}ms)`, "log-ok");
         updateAnimationInfo();
         startSimulation();
+      }
+
+      // ── Load frames from Paint tab ───────────────────────────
+      function loadPaintFrames() {
+        try {
+          const raw = localStorage.getItem('paint_frames');
+          if (!raw) { log('No paint frames in localStorage — use Paint tab → Send first', 'log-warn'); return; }
+          const data = JSON.parse(raw);
+          if (!Array.isArray(data.frames) || !data.frames.length) { log('Paint frames empty', 'log-warn'); return; }
+          if (data.rowInterval) document.getElementById('adv').value = data.rowInterval;
+          const adv = getAdv();
+          // Build bits arrays
+          const bitsArr = data.frames.map(h => {
+            const arr = new Uint8Array(CHIPS);
+            for (let i = 0; i < CHIPS; i++) arr[i] = parseInt(h.slice(i*2, i*2+2), 16) || 0;
+            return arr;
+          });
+          // frames = [{ts_ms, bits}] for streaming
+          frames = bitsArr.map((bits, idx) => ({ ts_ms: idx * adv, bits }));
+          frames.push({ ts_ms: frames.length * adv, bits: new Uint8Array(CHIPS) }); // end sentinel
+          // pixelRows for simulation
+          pixelRows = bitsArr.map(_bitsToPixelRow);
+          updateAnimationInfo();
+          document.getElementById('btn-send').disabled = false;
+          document.getElementById('btn-sim').disabled  = false;
+          log(`🎨 Loaded ${bitsArr.length} paint frames (${adv}ms/row)`, 'log-ok');
+          startSimOnly();
+        } catch(e) { log('Error loading paint frames: ' + e.message, 'log-err'); }
       }
 
       // ── Streaming ────────────────────────────────────────────
