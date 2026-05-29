@@ -22,9 +22,29 @@
 
     <div class="content">
 
-        <!-- Device banner -->
-        <div class="device-info-banner">
-            <p class="device-info-display" id="device-info-display">⚠️ Chưa chọn thiết bị</p>
+        <!-- Device selector -->
+        <div class="card" style="margin-bottom:12px;">
+            <div class="card-header" style="cursor:pointer;" onclick="toggleDeviceSelector()">
+                <h3 id="device-info-display" style="margin:0;">⚠️ Chưa chọn thiết bị</h3>
+                <span id="dev-sel-toggle" class="header-meta" style="font-size:11px;">▼ đổi thiết bị</span>
+            </div>
+            <div id="device-selector-body" style="display:none;">
+                <div class="card-content" style="padding-top:8px;">
+                    <!-- MQTT device list -->
+                    <div id="cfg-device-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+                        <p style="color:var(--muted);font-size:12px;">⏳ Đang tải danh sách...</p>
+                    </div>
+                    <!-- Manual entry -->
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                        <input type="text"   id="cfg-manual-ip"   placeholder="192.168.1.x"
+                               style="flex:1;min-width:120px;" value="">
+                        <input type="number" id="cfg-manual-port" placeholder="3333"
+                               style="width:70px;" value="3333">
+                        <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;"
+                                onclick="cfgSelectManual()">🔗 Chọn</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Row 1: Board Config + Timing Config -->
@@ -214,25 +234,91 @@
             }
         }
 
-        // ── Init ─────────────────────────────────────────────────────────────
-        window.addEventListener('DOMContentLoaded', function () {
-            const ip   = localStorage.getItem('selected_esp_ip');
-            const port = localStorage.getItem('selected_esp_port');
-            const banner = document.getElementById('device-info-display');
+        // ── Device selector ──────────────────────────────────────────────────
+        function toggleDeviceSelector() {
+            const body   = document.getElementById('device-selector-body');
+            const toggle = document.getElementById('dev-sel-toggle');
+            const open   = body.style.display === 'none';
+            body.style.display  = open ? '' : 'none';
+            toggle.textContent  = open ? '▲ đóng' : '▼ đổi thiết bị';
+            if (open) loadCfgDevices();
+        }
 
-            if (ip && port) {
+        function updateBanner() {
+            const ip   = localStorage.getItem('selected_esp_ip');
+            const port = localStorage.getItem('selected_esp_port') || '3333';
+            const banner = document.getElementById('device-info-display');
+            if (ip) {
                 banner.textContent = `🎯 Đang điều khiển: ${ip}:${port}`;
                 banner.style.color = '#27ae60';
                 document.getElementById('status-device-ip').textContent   = ip;
                 document.getElementById('status-connection').textContent  = `Port ${port}`;
                 document.getElementById('ws-status').textContent          = 'Ready';
             } else {
-                banner.textContent = '⚠️ Chưa chọn thiết bị — Vui lòng vào Home và click Access';
+                banner.textContent = '⚠️ Chưa chọn thiết bị';
                 banner.style.color = '#e74c3c';
                 document.getElementById('ws-status').textContent         = 'No device';
                 document.getElementById('status-device-ip').textContent  = '—';
                 document.getElementById('status-connection').textContent = '—';
             }
+        }
+
+        function cfgSelect(ip, port) {
+            localStorage.setItem('selected_esp_ip',   ip);
+            localStorage.setItem('selected_esp_port', port);
+            updateBanner();
+            // Close selector
+            document.getElementById('device-selector-body').style.display = 'none';
+            document.getElementById('dev-sel-toggle').textContent = '▼ đổi thiết bị';
+            // Re-render list so the star updates
+            loadCfgDevices();
+        }
+
+        function cfgSelectManual() {
+            const ip   = document.getElementById('cfg-manual-ip').value.trim();
+            const port = document.getElementById('cfg-manual-port').value || '3333';
+            if (!ip) { alert('Nhập địa chỉ IP!'); return; }
+            cfgSelect(ip, port);
+        }
+
+        function loadCfgDevices() {
+            const container = document.getElementById('cfg-device-list');
+            const savedIp   = localStorage.getItem('selected_esp_ip');
+            fetch('/api/devices')
+                .then(r => r.json())
+                .then(data => {
+                    const devices = data.devices || [];
+                    if (!devices.length) {
+                        container.innerHTML = '<p style="color:var(--muted);font-size:12px;">Không có thiết bị MQTT</p>';
+                        return;
+                    }
+                    container.innerHTML = devices.map(d => {
+                        const online  = d.online;
+                        const isSel   = savedIp && savedIp === d.ip;
+                        const cls     = online ? '#27ae60' : '#888';
+                        const dot     = online ? '🟢' : '🔴';
+                        return `<div style="border:1px solid ${isSel ? '#27ae60' : '#333'};border-radius:6px;
+                                            padding:6px 10px;font-size:12px;background:${isSel ? 'rgba(39,174,96,0.1)' : ''};
+                                            display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <span>${dot} <b>${d.name}</b>${isSel ? ' ⭐' : ''}</span>
+                            <span style="color:#888;">${d.ip || '—'}</span>
+                            ${d.ip ? `<button class="btn btn-primary" style="padding:3px 8px;font-size:11px;"
+                                onclick="cfgSelect('${d.ip}', 3333)">Chọn</button>` : ''}
+                        </div>`;
+                    }).join('');
+                })
+                .catch(() => {
+                    container.innerHTML = '<p style="color:var(--muted);font-size:12px;">Không kết nối được server</p>';
+                });
+        }
+
+        // ── Init ─────────────────────────────────────────────────────────────
+        window.addEventListener('DOMContentLoaded', function () {
+            updateBanner();
+
+            // Pre-fill manual IP from saved selection
+            const savedIp = localStorage.getItem('selected_esp_ip');
+            if (savedIp) document.getElementById('cfg-manual-ip').value = savedIp;
 
             // Restore saved board count
             const saved = localStorage.getItem('numBoards');
