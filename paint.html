@@ -107,6 +107,9 @@
                     <label>Rows</label>
                     <input type="number" id="rows-in" value="32" min="1" max="300" onchange="resizeRows(+this.value)">
                     <button class="btn btn-secondary" onclick="clearAll()">🗑</button>
+                    <label style="margin:0;display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;" title="Sub-frame timing: smooths diagonal lines by computing per-valve ms offsets via linear regression">
+                        <input type="checkbox" id="smooth-draw" checked> Smooth
+                    </label>
                     <button class="btn btn-primary" onclick="sendToControl()">📤 Send</button>
                 </div>
 
@@ -212,6 +215,13 @@
                         <input type="number" id="row-ms" value="80" min="20" max="1000" style="width:80px;padding:5px 8px;font-size:12px;">
                         <label style="margin:0;font-size:12px;">Loops:</label>
                         <input type="number" id="loops" value="1" min="1" max="999" style="width:60px;padding:5px 8px;font-size:12px;">
+                        <label style="margin:0;display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;" title="Smooths diagonal lines using sub-frame per-valve timing (linear regression on pixel neighbourhood)">
+                            <input type="checkbox" id="smooth-anim" checked> 🎯 Smooth diagonals
+                        </label>
+                    </div>
+                    <div id="smooth-info" style="font-size:11px;color:var(--muted);background:var(--surface-card);border-radius:var(--r-sm);padding:6px 10px;margin-bottom:10px;">
+                        <b>Smooth ON:</b> Mỗi van nhận timestamp ms riêng (sub-frame). ESP32 mở van đúng thời điểm → đường chéo mịn.
+                        Bước thang Bresenham được loại bỏ hoàn toàn. Dùng linear regression ±5 cột.
                     </div>
                     <!-- Preview strip -->
                     <div style="overflow-x:auto;border:1px solid var(--hairline);border-radius:var(--r-md);background:#333;padding:4px;">
@@ -813,24 +823,134 @@ function stepPlay() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Sub-frame smooth timing
+// ═══════════════════════════════════════════════════════════
+
+// Linear regression: given pixel neighborhood ±radius around column c at baseRow,
+// returns the fractional row (float) at column c — i.e. where the line truly passes.
+function localLinearFit(c, baseRow, radius) {
+    const pts = [];
+    for (let dc = -radius; dc <= radius; dc++) {
+        const cc = c + dc;
+        if (cc < 0 || cc >= NV) continue;
+        // Find the on-row nearest to baseRow in column cc
+        let bestR = -1, bestD = radius + 3;
+        for (let r = Math.max(0, baseRow - radius - 1); r < Math.min(nRows, baseRow + radius + 2); r++) {
+            if (getP(r, cc)) {
+                const d = Math.abs(r - baseRow);
+                if (d < bestD) { bestD = d; bestR = r; }
+            }
+        }
+        if (bestR >= 0) pts.push({x: dc, y: bestR});
+    }
+    if (pts.length < 2) return baseRow;
+
+    // Weighted least squares y = a·x + b  (closer columns get higher weight)
+    let sw=0, sx=0, sy=0, sxx=0, sxy=0;
+    for (const p of pts) {
+        const w = 1 / (Math.abs(p.x) + 1);
+        sw += w; sx += w*p.x; sy += w*p.y; sxx += w*p.x*p.x; sxy += w*p.x*p.y;
+    }
+    const det = sw*sxx - sx*sx;
+    if (Math.abs(det) < 1e-6) return sy/sw;
+    return (sxx*sy - sx*sxy) / det;   // b = value at x=0
+}
+
+// Build per-valve timed frames using sub-frame precision.
+// Returns [{ts_ms, bits}] sorted by ts_ms — ready for the ESP32 scheduler.
+function buildSmoothFrames(rowMs) {
+    const events = [];   // {time_ms, col, open}
+
+    for (let c = 0; c < NV; c++) {
+        let runStart = -1;
+        for (let r = 0; r <= nRows; r++) {
+            const on = r < nRows ? getP(r, c) : 0;
+            if (on && runStart < 0) {
+                runStart = r;
+            } else if (!on && runStart >= 0) {
+                const runEnd   = r;
+                const duration = (runEnd - runStart) * rowMs;
+                // Compute fractional open row using local linear fit
+                const fracOpen = localLinearFit(c, runStart, 5);
+                const openMs   = Math.max(0, Math.round(fracOpen * rowMs));
+                events.push({time_ms: openMs,            col: c, open: true });
+                events.push({time_ms: openMs + duration, col: c, open: false});
+                runStart = -1;
+            }
+        }
+    }
+
+    // Sort: open before close at same ts
+    events.sort((a, b) => a.time_ms !== b.time_ms ? a.time_ms - b.time_ms : (a.open ? -1 : 1));
+
+    // Walk events → build incremental state frames
+    const state    = new Uint8Array(NB);
+    const result   = [{ts_ms: 0, bits: new Uint8Array(NB)}];
+    let i = 0;
+    while (i < events.length) {
+        const t = events[i].time_ms;
+        while (i < events.length && events[i].time_ms === t) {
+            const {col, open} = events[i++];
+            const byte = col >> 3, bit = 7 - (col & 7);
+            if (open) state[byte] |=  (1 << bit);
+            else      state[byte] &= ~(1 << bit);
+        }
+        result.push({ts_ms: t, bits: new Uint8Array(state)});
+    }
+    // End sentinel — all off
+    const maxT = events.reduce((m, e) => Math.max(m, e.time_ms), 0);
+    result.push({ts_ms: maxT + rowMs, bits: new Uint8Array(NB)});
+    return result;
+}
+
+function isSmooth() {
+    const cb = document.getElementById('smooth-anim') || document.getElementById('smooth-draw');
+    return cb ? cb.checked : true;
+}
+
+function toHex(u8) { return Array.from(u8).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+
+// ═══════════════════════════════════════════════════════════
 // Export / Import / Send
 // ═══════════════════════════════════════════════════════════
 function sendToControl() {
-    const hex=frames.map(f=>Array.from(f).map(b=>b.toString(16).padStart(2,'0')).join(''));
-    localStorage.setItem('paint_frames', JSON.stringify({
-        frames: hex,
-        rowInterval: parseInt(document.getElementById('row-ms')?.value)||80,
-        numFrames: nRows,
-        ts: Date.now()
-    }));
-    alert(`✅ Saved ${nRows} frames → localStorage.\nIn Control tab: Stream mode → Load Paint Frames.`);
+    const rowMs = parseInt(document.getElementById('row-ms')?.value) || 80;
+    const smooth = isSmooth();
+    const gridHex = frames.map(toHex);
+
+    let payload;
+    if (smooth) {
+        const timedFrames = buildSmoothFrames(rowMs);
+        payload = {
+            mode:         'timed',
+            frames:       gridHex,                              // for simulation
+            frames_timed: timedFrames.map(f=>({t: f.ts_ms, b: toHex(f.bits)})),
+            rowInterval:  rowMs,
+            numFrames:    nRows,
+            ts:           Date.now()
+        };
+    } else {
+        payload = { mode: 'grid', frames: gridHex, rowInterval: rowMs, numFrames: nRows, ts: Date.now() };
+    }
+
+    localStorage.setItem('paint_frames', JSON.stringify(payload));
+    alert(`✅ Saved ${nRows} frames → localStorage (mode: ${smooth ? 'smooth sub-frame' : 'grid'}).\nControl tab → 🎨 Load Paint Frames.`);
 }
 
 function exportJSON() {
-    const hex=frames.map(f=>Array.from(f).map(b=>b.toString(16).padStart(2,'0')).join(''));
-    const blob=new Blob([JSON.stringify({frames:hex,rowInterval:80,numFrames:nRows},null,2)],{type:'application/json'});
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(blob); a.download='waterfall_frames.json'; a.click();
+    const rowMs  = parseInt(document.getElementById('row-ms')?.value) || 80;
+    const smooth = isSmooth();
+    const gridHex = frames.map(toHex);
+    let data;
+    if (smooth) {
+        const tf = buildSmoothFrames(rowMs);
+        data = { mode:'timed', frames:gridHex, frames_timed:tf.map(f=>({t:f.ts_ms,b:toHex(f.bits)})), rowInterval:rowMs, numFrames:nRows };
+    } else {
+        data = { mode:'grid', frames:gridHex, rowInterval:rowMs, numFrames:nRows };
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'waterfall_frames.json'; a.click();
     URL.revokeObjectURL(a.href);
 }
 
@@ -882,6 +1002,19 @@ window.addEventListener('DOMContentLoaded', ()=>{
     dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files[0])loadImg(e.dataTransfer.files[0]);});
 
     document.addEventListener('keydown',onKey);
+
+    // Sync smooth checkboxes across tabs
+    ['smooth-draw','smooth-anim'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', function() {
+            ['smooth-draw','smooth-anim'].forEach(oid => {
+                const o = document.getElementById(oid);
+                if (o && o !== this) o.checked = this.checked;
+            });
+            const info = document.getElementById('smooth-info');
+            if (info) info.style.display = this.checked ? '' : 'none';
+        });
+    });
 });
 
 function touchEvt(e) {

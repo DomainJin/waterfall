@@ -3131,22 +3131,35 @@
           const data = JSON.parse(raw);
           if (!Array.isArray(data.frames) || !data.frames.length) { log('Paint frames empty', 'log-warn'); return; }
           if (data.rowInterval) document.getElementById('adv').value = data.rowInterval;
-          const adv = getAdv();
-          // Build bits arrays
-          const bitsArr = data.frames.map(h => {
+          const adv  = getAdv();
+          const mode = data.mode || 'grid';
+
+          // Always build pixelRows from the grid frames (for simulation display)
+          const gridBits = data.frames.map(h => {
             const arr = new Uint8Array(CHIPS);
             for (let i = 0; i < CHIPS; i++) arr[i] = parseInt(h.slice(i*2, i*2+2), 16) || 0;
             return arr;
           });
-          // frames = [{ts_ms, bits}] for streaming
-          frames = bitsArr.map((bits, idx) => ({ ts_ms: idx * adv, bits }));
-          frames.push({ ts_ms: frames.length * adv, bits: new Uint8Array(CHIPS) }); // end sentinel
-          // pixelRows for simulation
-          pixelRows = bitsArr.map(_bitsToPixelRow);
+          pixelRows = gridBits.map(_bitsToPixelRow);
+
+          if (mode === 'timed' && Array.isArray(data.frames_timed) && data.frames_timed.length) {
+            // Sub-frame timed mode: precise per-valve timestamps
+            frames = data.frames_timed.map(f => {
+              const arr = new Uint8Array(CHIPS);
+              for (let i = 0; i < CHIPS; i++) arr[i] = parseInt(f.b.slice(i*2, i*2+2), 16) || 0;
+              return { ts_ms: f.t, bits: arr };
+            });
+            log(`🎨 Smooth paint: ${data.frames_timed.length} timed frames → ${gridBits.length} display rows`, 'log-ok');
+          } else {
+            // Standard grid mode
+            frames = gridBits.map((bits, idx) => ({ ts_ms: idx * adv, bits }));
+            frames.push({ ts_ms: frames.length * adv, bits: new Uint8Array(CHIPS) });
+            log(`🎨 Grid paint: ${gridBits.length} frames (${adv}ms/row)`, 'log-ok');
+          }
+
           updateAnimationInfo();
           document.getElementById('btn-send').disabled = false;
           document.getElementById('btn-sim').disabled  = false;
-          log(`🎨 Loaded ${bitsArr.length} paint frames (${adv}ms/row)`, 'log-ok');
           startSimOnly();
         } catch(e) { log('Error loading paint frames: ' + e.message, 'log-err'); }
       }
