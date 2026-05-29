@@ -4887,7 +4887,18 @@ Note: Use Python tool for UDP:<br/>
           setInterval(loadMqttDevices, 10000);
           // Pre-select device from localStorage (home page selection)
           const savedIp = localStorage.getItem('selected_esp_ip');
-          if (savedIp) log(`Gợi ý: chọn device có IP ${savedIp}`, "log-info");
+          if (savedIp) {
+            log(`Thiết bị từ Home: IP ${savedIp} — đang tải danh sách...`, "log-info");
+            // After devices load, auto-connect if match found
+            setTimeout(async () => {
+              await loadMqttDevices();
+              const sel = document.getElementById("mqtt-device-select");
+              if (sel.value) {
+                log(`Auto-connect MQTT → ${sel.value}`, "log-info");
+                connectESP();
+              }
+            }, 1200);
+          }
         } else {
           // LAN mode: dùng WebSocket trực tiếp
           document.getElementById("mqtt-picker").style.display = "none";
@@ -4897,13 +4908,17 @@ Note: Use Python tool for UDP:<br/>
           } else {
             log(`LAN mode: ${location.protocol}//${location.host}`, "log-ok");
           }
-          // Pre-fill IP from home page selection
-          const savedIp = localStorage.getItem('selected_esp_ip');
+          // Pre-fill IP from home page selection and auto-connect
+          const savedIp   = localStorage.getItem('selected_esp_ip');
+          const savedPort = localStorage.getItem('selected_esp_port');
           if (savedIp) {
-            document.getElementById("ip").value = savedIp;
-            log(`IP từ Home page: ${savedIp}`, "log-info");
+            document.getElementById("ip").value   = savedIp;
+            if (savedPort) document.getElementById("port").value = savedPort;
+            log(`IP từ Home page: ${savedIp} — đang tự kết nối...`, "log-info");
+            setTimeout(connectESP, 400); // nhỏ delay để DOM sẵn sàng
+          } else {
+            log("Nhập IP ESP32 → Connect để dùng LAN (tốc độ cao)", "log-info");
           }
-          log("Nhập IP ESP32 → Connect để dùng LAN (tốc độ cao)", "log-info");
         }
       });
 
