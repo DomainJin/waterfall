@@ -364,6 +364,16 @@
         overflow-y: auto;
         line-height: 1.8;
       }
+      /* ── Pump panel ── */
+      .pump-row { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--text); padding:3px 0; }
+      .pump-dot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex-shrink:0; transition:background .3s; }
+      .pump-dot.on  { background:#4caf8a; box-shadow:0 0 5px #4caf8a88; animation:pulse 2s infinite; }
+      .pump-dot.off { background:var(--muted); }
+      .pump-dot.warn { background:#e8a55a; }
+      .pump-tag { margin-left:auto; font-size:9px; font-family:var(--mono); color:var(--muted); }
+      .pump-mode-btn { flex:1; font-size:11px; }
+      .pump-mode-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
       .log-ok {
         color: var(--success);
       }
@@ -1263,6 +1273,64 @@
               </div>
             </div>
 
+          </div>
+        </div>
+
+        <!-- ─── Pump Control ─── -->
+        <div class="sec">
+          <div class="sec-title collapsible" onclick="toggleSec('pump-body','pump-chev')">
+            <span>💧 Pump</span>
+            <span id="pump-chev" class="sec-chevron">▾</span>
+          </div>
+          <div class="sec-body collapsed" id="pump-body">
+
+            <!-- Mode toggle -->
+            <div style="display:flex;gap:4px;margin-bottom:8px;">
+              <button class="btn btn-ghost btn-sm pump-mode-btn active" id="pump-btn-auto"
+                      onclick="setPumpMode('auto')">Auto</button>
+              <button class="btn btn-ghost btn-sm pump-mode-btn" id="pump-btn-manual"
+                      onclick="setPumpMode('manual')">Manual</button>
+            </div>
+
+            <!-- Auto panel: sensor + pump status -->
+            <div id="pump-auto-ui">
+              <div class="pump-row">
+                <span class="pump-dot off" id="pdot-low"></span>
+                <span>Cảm biến mức thấp</span>
+                <span class="pump-tag" id="ptag-low">—</span>
+              </div>
+              <div class="pump-row">
+                <span class="pump-dot off" id="pdot-high"></span>
+                <span>Cảm biến mức cao</span>
+                <span class="pump-tag" id="ptag-high">—</span>
+              </div>
+              <div style="border-top:1px solid var(--border);margin:5px 0;"></div>
+              <div class="pump-row">
+                <span class="pump-dot off" id="pdot-pump"></span>
+                <span style="font-weight:600;">Máy bơm</span>
+                <span class="pump-tag" id="ptag-pump">—</span>
+              </div>
+            </div>
+
+            <!-- Manual panel: on/off buttons -->
+            <div id="pump-manual-ui" style="display:none">
+              <div class="pump-row" style="margin-bottom:6px;">
+                <span class="pump-dot off" id="pdot-pump-m"></span>
+                <span style="font-weight:600;">Máy bơm</span>
+                <span class="pump-tag" id="ptag-pump-m">—</span>
+              </div>
+              <div style="display:flex;gap:4px;">
+                <button class="btn btn-primary btn-sm" style="flex:1;"
+                        onclick="sendPumpCmd('on')">▶ BẬT</button>
+                <button class="btn btn-danger btn-sm" style="flex:1;"
+                        onclick="sendPumpCmd('off')">■ TẮT</button>
+              </div>
+            </div>
+
+            <div id="pump-status-line"
+                 style="margin-top:6px;font-size:9px;color:var(--muted);font-family:var(--mono);">
+              Chưa có dữ liệu
+            </div>
           </div>
         </div>
 
@@ -2433,6 +2501,7 @@
           document.getElementById("btn-send").disabled = (frames.length === 0);
           document.getElementById("btn-sim").disabled = false;
           _applyMqttUI(true);
+          startPumpPoll();
           log(`Kết nối MQTT → ${chosen}`, "log-ok");
           log("Streaming animation cần LAN (http:// / file://) — chỉ điều khiển van qua MQTT", "log-warn");
           return;
@@ -2459,6 +2528,7 @@
             document.getElementById("btn-send").disabled = frames.length === 0;
             document.getElementById("btn-sim").disabled = false;
             log(`Kết nối LAN thành công @ ${ip}`, "log-ok");
+            if (_pumpPollIv) { clearInterval(_pumpPollIv); _pumpPollIv = null; } // WS handles status
           };
           ws.onclose = (e) => {
             connected = false;
@@ -2477,6 +2547,7 @@
             try {
               const d = JSON.parse(e.data);
               if (d.type === 'valves' && d.bits) _onLiveValves(d.bits);
+              else if (d.type === 'pump') updatePumpUI(d);
             } catch {}
           };
         } catch (e) { log(e.message, "log-err"); }
@@ -3121,6 +3192,75 @@
         log(`Simulating ${type} pattern (${numRows} rows × ${frameMs}ms)`, "log-ok");
         updateAnimationInfo();
         startSimulation();
+      }
+
+      // ── Pump Control ─────────────────────────────────────────
+      let _pumpCurMode = 'auto';
+      let _pumpPollIv  = null;
+
+      function setPumpMode(mode) {
+        _pumpCurMode = mode;
+        const isAuto = mode === 'auto';
+        document.getElementById('pump-btn-auto').classList.toggle('active', isAuto);
+        document.getElementById('pump-btn-manual').classList.toggle('active', !isAuto);
+        document.getElementById('pump-auto-ui').style.display   = isAuto ? '' : 'none';
+        document.getElementById('pump-manual-ui').style.display = isAuto ? 'none' : '';
+        sendPumpCmd(mode);   // tell firmware to switch mode
+      }
+
+      function sendPumpCmd(action) {
+        // action: 'on' | 'off' | 'auto' | 'manual'
+        if (connMode === 'lan' && ws && ws.readyState === 1) {
+          ws.send(JSON.stringify({ cmd: 'SET_MODE', mode: 'pump', pattern: action }));
+        } else if (connMode === 'mqtt') {
+          fetch('/api/pump/cmd', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cmd: action.toUpperCase() })
+          }).catch(e => log('Pump cmd error: ' + e.message, 'log-err'));
+        }
+      }
+
+      function updatePumpUI(d) {
+        // d = {pump, level_low, level_high, mode, run_sec}
+        const dot   = (id, on, warn) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.className = 'pump-dot ' + (on ? 'on' : warn ? 'warn' : 'off');
+        };
+        const tag = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+
+        dot('pdot-low',    d.level_low,  false);
+        dot('pdot-high',   d.level_high, false);
+        dot('pdot-pump',   d.pump,       false);
+        dot('pdot-pump-m', d.pump,       false);
+
+        tag('ptag-low',    d.level_low  ? 'Kích hoạt' : 'Bình thường');
+        tag('ptag-high',   d.level_high ? 'Đầy' : 'Chưa đầy');
+        const pumpLabel = d.pump ? `▶ Đang chạy ${d.run_sec || 0}s` : '■ Dừng';
+        tag('ptag-pump',   pumpLabel);
+        tag('ptag-pump-m', pumpLabel);
+
+        const sl = document.getElementById('pump-status-line');
+        if (sl) sl.textContent = `mode:${d.mode || '—'} · ${new Date().toLocaleTimeString()}`;
+
+        // Sync mode buttons if firmware reports different mode
+        if (d.mode && d.mode !== _pumpCurMode) {
+          _pumpCurMode = d.mode;
+          const isAuto = d.mode === 'auto';
+          document.getElementById('pump-btn-auto').classList.toggle('active', isAuto);
+          document.getElementById('pump-btn-manual').classList.toggle('active', !isAuto);
+          document.getElementById('pump-auto-ui').style.display   = isAuto ? '' : 'none';
+          document.getElementById('pump-manual-ui').style.display = isAuto ? 'none' : '';
+        }
+      }
+
+      function startPumpPoll() {
+        if (_pumpPollIv) clearInterval(_pumpPollIv);
+        if (connMode !== 'mqtt') return;
+        const poll = () => fetch('/api/pump/status').then(r => r.json()).then(updatePumpUI).catch(() => {});
+        poll();
+        _pumpPollIv = setInterval(poll, 8000);
       }
 
       // ── Load frames from Paint tab ───────────────────────────

@@ -201,6 +201,12 @@ void setup() {
             else if (pattern == "script")  ep = EFX_SCRIPT;
             g_effect.setEffect(ep, sensitivity);
             Serial.printf("[MODE] → EFFECT pattern=%s speed=%d\n", pattern.c_str(), sensitivity);
+        } else if (mode == "pump") {
+            if      (pattern == "on")     g_pump.setPump(true);
+            else if (pattern == "off")    g_pump.setPump(false);
+            else if (pattern == "auto")   g_pump.setMode(PumpController::AUTO);
+            else if (pattern == "manual") g_pump.setMode(PumpController::MANUAL);
+            Serial.printf("[MODE] → PUMP action=%s\n", pattern.c_str());
         } else {
             g_mode = MODE_STREAM;
             g_valve.allOff();
@@ -359,6 +365,12 @@ void setup() {
                         g_effect.setEffect(ep, sensitivity);
                         Serial.printf("[MQTT] SET_MODE → EFFECT pattern=%s speed=%d\n",
                                       pattern.c_str(), sensitivity);
+                    } else if (mode == "pump") {
+                        if      (pattern == "on")     g_pump.setPump(true);
+                        else if (pattern == "off")    g_pump.setPump(false);
+                        else if (pattern == "auto")   g_pump.setMode(PumpController::AUTO);
+                        else if (pattern == "manual") g_pump.setMode(PumpController::MANUAL);
+                        Serial.printf("[MQTT] SET_MODE → PUMP action=%s\n", pattern.c_str());
                     } else {
                         g_mode = MODE_STREAM;
                         g_valve.allOff();
@@ -428,20 +440,22 @@ static uint32_t last_pump_pub   = 0;
 const  uint32_t PUMP_PUB_MS     = 30000;  // publish định kỳ mỗi 30s
 
 // Build JSON trạng thái bơm
-static String pumpStatusJSON() {
-    char buf[128];
+// Returns core pump fields (no wrapping braces) — callers add outer {} + optional "type"
+static String _pumpFields() {
+    char buf[160];
     const PumpController& p = g_pump;
     snprintf(buf, sizeof(buf),
-        "{\"pump\":%s,\"level_low\":%s,\"level_high\":%s,"
-        "\"mode\":\"%s\",\"run_sec\":%lu}",
+        "\"pump\":%s,\"level_low\":%s,\"level_high\":%s,"
+        "\"mode\":\"%s\",\"run_sec\":%lu",
         p.pumpOn()    ? "true" : "false",
         p.levelLow()  ? "true" : "false",
         p.levelHigh() ? "true" : "false",
         p.mode() == PumpController::AUTO ? "auto" : "manual",
-        p.pumpRunSec()
-    );
+        p.pumpRunSec());
     return String(buf);
 }
+static String pumpStatusJSON()  { return "{" + _pumpFields() + "}"; }
+static String pumpStatusWSJSON(){ return "{\"type\":\"pump\"," + _pumpFields() + "}"; }
 
 void loop() {
     uint32_t loop_start = micros();
@@ -497,13 +511,17 @@ void loop() {
     // ─────────────────────────────────────────────────────
     g_pump.tick();
 
-    // Publish pump status lên MQTT: khi có thay đổi hoặc mỗi 30s
-    if (g_mqtt.isConnected()) {
+    // Publish pump status: khi có thay đổi hoặc mỗi 30s
+    {
         uint32_t now = millis();
         bool due = (now - last_pump_pub >= PUMP_PUB_MS);
-        if (g_pump.takeChanged() || due) {
+        bool changed = g_pump.takeChanged();
+        if (changed || due) {
             last_pump_pub = now;
-            g_mqtt.publish(MQTT_TOPIC_PUMP_STATUS, pumpStatusJSON(), /*retain=*/true);
+            if (g_mqtt.isConnected())
+                g_mqtt.publish(MQTT_TOPIC_PUMP_STATUS, pumpStatusJSON(), /*retain=*/true);
+            if (g_tcp.hasClient())
+                g_tcp.broadcastJSON(pumpStatusWSJSON());
         }
     }
 

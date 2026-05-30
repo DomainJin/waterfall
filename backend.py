@@ -50,6 +50,10 @@ TOPIC_STREAM = 'waterfall/cmd/stream'# publish   — gửi animation frame
 TOPIC_PAINT_STATUS = 'paint/status'  # subscribe — trạng thái paint device
 TOPIC_PAINT_CMD    = 'paint/cmd'     # publish   — điều khiển paint device
 
+# MQTT Topics — Pump Controller
+TOPIC_PUMP_STATUS = 'waterfall/pump/status'  # subscribe — trạng thái bơm
+TOPIC_PUMP_CMD    = 'waterfall/cmd/pump'     # publish   — lệnh điều khiển bơm
+
 # Setup logging - simple approach (Windows-safe)
 # Use basicConfig's default stream (auto-handles encoding)
 logging.basicConfig(
@@ -88,6 +92,7 @@ class MQTTRelay:
         self._last_status = {}   # cache trạng thái từ ESP32
         self._esp_devices = {}   # {name: {online, ip, last_seen}}
         self._paint_status = {}  # cache trạng thái paint device
+        self._pump_status  = {}  # cache trạng thái bơm
 
     def start(self):
         if not MQTT_AVAILABLE or not MQTT_BROKER:
@@ -111,8 +116,9 @@ class MQTTRelay:
         if rc == 0:
             self.connected = True
             client.subscribe(TOPIC_CMD, qos=1)
-            client.subscribe(TOPIC_STATUS, qos=1)
+            client.subscribe(TOPIC_STATUS,      qos=1)
             client.subscribe(TOPIC_PAINT_STATUS, qos=1)
+            client.subscribe(TOPIC_PUMP_STATUS,  qos=1)
             logger.info(f"[MQTT] Đã kết nối, subscribe: waterfall/# + paint/status")
         else:
             logger.error(f"[MQTT] Kết nối thất bại, rc={rc}")
@@ -128,6 +134,11 @@ class MQTTRelay:
             topic   = msg.topic
             logger.info(f"[MQTT] Nhận: {topic} → {payload[:80]}")
             data = json.loads(payload)
+
+            # Pump controller gửi trạng thái
+            if topic == TOPIC_PUMP_STATUS:
+                self._pump_status = {**data, 'last_seen': time.time()}
+                return
 
             # Paint device gửi trạng thái
             if topic == TOPIC_PAINT_STATUS:
@@ -181,6 +192,10 @@ class MQTTRelay:
     @property
     def paint_status(self):
         return self._paint_status
+
+    @property
+    def pump_status(self):
+        return self._pump_status
 
 
 mqtt_relay = MQTTRelay()
@@ -1019,6 +1034,36 @@ def api_paint_cmd():
     payload = json.dumps(data)
     mqtt_relay.publish(TOPIC_PAINT_CMD, payload, qos=1)
     logger.info(f"[PAINT CMD] {payload}")
+    return jsonify({'success': True, 'sent': data})
+
+
+@app.route('/api/pump/status', methods=['GET'])
+def api_pump_status():
+    """Trạng thái bơm từ MQTT retained message."""
+    status = mqtt_relay.pump_status
+    if not status:
+        return jsonify({'pump': False, 'level_low': False, 'level_high': False,
+                        'mode': 'auto', 'run_sec': 0})
+    # Đánh dấu stale nếu quá 60s không có tin
+    if time.time() - status.get('last_seen', 0) > 60:
+        status = dict(status)
+        status['stale'] = True
+    return jsonify(status)
+
+
+@app.route('/api/pump/cmd', methods=['POST'])
+def api_pump_cmd():
+    """Gửi lệnh điều khiển bơm qua MQTT.
+    Body: {"cmd":"ON"} | {"cmd":"OFF"} | {"cmd":"AUTO"} | {"cmd":"MANUAL"}
+    """
+    data = request.get_json() or {}
+    if not data.get('cmd'):
+        return jsonify({'error': 'Thiếu trường cmd'}), 400
+    if not mqtt_relay.connected:
+        return jsonify({'error': 'MQTT chưa kết nối'}), 503
+    payload = json.dumps(data, separators=(',', ':'))
+    mqtt_relay.publish(TOPIC_PUMP_CMD, payload, qos=1)
+    logger.info(f"[PUMP CMD] {payload}")
     return jsonify({'success': True, 'sent': data})
 
 
