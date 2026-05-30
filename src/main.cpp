@@ -442,15 +442,16 @@ const  uint32_t PUMP_PUB_MS     = 30000;  // publish định kỳ mỗi 30s
 // Build JSON trạng thái bơm
 // Returns core pump fields (no wrapping braces) — callers add outer {} + optional "type"
 static String _pumpFields() {
-    char buf[160];
+    char buf[192];
     const PumpController& p = g_pump;
     snprintf(buf, sizeof(buf),
         "\"pump\":%s,\"level_low\":%s,\"level_high\":%s,"
-        "\"mode\":\"%s\",\"run_sec\":%lu",
+        "\"mode\":\"%s\",\"state\":\"%s\",\"run_sec\":%lu",
         p.pumpOn()    ? "true" : "false",
         p.levelLow()  ? "true" : "false",
         p.levelHigh() ? "true" : "false",
         p.mode() == PumpController::AUTO ? "auto" : "manual",
+        p.stateStr(),
         p.pumpRunSec());
     return String(buf);
 }

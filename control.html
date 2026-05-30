@@ -3242,7 +3242,8 @@
         tag('ptag-pump-m', pumpLabel);
 
         const sl = document.getElementById('pump-status-line');
-        if (sl) sl.textContent = `mode:${d.mode || '—'} · ${new Date().toLocaleTimeString()}`;
+        const stateLabel = {idle:'⏸ Chờ', pumping:'▶ Đang bơm', wait_reset:'⏳ Chờ reset'}[d.state] || d.state || '—';
+        if (sl) sl.textContent = `${stateLabel} | mode:${d.mode||'—'} · ${new Date().toLocaleTimeString()}`;
 
         // Sync mode buttons if firmware reports different mode
         if (d.mode && d.mode !== _pumpCurMode) {
