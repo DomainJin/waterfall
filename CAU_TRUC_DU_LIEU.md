@@ -1,339 +1,402 @@
-# 💧 Hệ Thống Điều Khiển Van Rèm Nước
+# Cấu trúc dữ liệu — Waterfall Effect System
 
-**Hệ thống web-based điều khiển lên tới 80 van solenoid bằng WebSocket, tạo ra những hiệu ứng animation có thể lập trình cho rèm nước.**
-
----
-
-## 📋 Mục Lục
-
-- [Tổng Quan Dự Án](#tổng-quan-dự-án)
-- [Cấu Trúc Dữ Liệu Hiệu Ứng](#cấu-trúc-dữ-liệu-hiệu-ứng)
-- [Kiến Trúc Hệ Thống](#kiến-trúc-hệ-thống)
-- [Hướng Dẫn Nhanh](#hướng-dẫn-nhanh)
-- [Tài Liệu Tham Khảo](#tài-liệu-tham-khảo)
-- [Cấu Hình Phần Cứng](#cấu-hình-phần-cứng)
+> Tài liệu này mô tả đầy đủ định dạng nhị phân để tự viết phần mềm thiết kế hiệu ứng
+> và xuất file `.bin` tương thích với ESP32 firmware.
 
 ---
 
-## 🎯 Tổng Quan Dự Án
+## 1. Tổng quan phần cứng
 
-Hệ thống này điều khiển tối đa **80 van solenoid** được kết nối theo kiếu xuyến (daisy-chain) sử dụng các shift register (74HC595). ESP32 nhận các khung hình (frame) animation qua WebSocket và thực thi chúng theo thời gian thực với độ chính xác cao.
+```
+[ESP32] ──GPIO──► [74HC245D] ──► [74HC595 #1] ──Q7'──► [74HC595 #2] ──► ... ──► [74HC595 #10]
+                                      │                      │                          │
+                                   Van 1–8               Van 9–16                  Van 73–80
+```
 
-**Các Tính Năng Chính:**
-
-- ✅ Điều khiển van theo thời gian thực qua WebSocket
-- ✅ Lưu trữ các khung hình animation trên thẻ SD
-- ✅ Giao diện Web để tạo và quản lý animation
-- ✅ Giao thức UDP cho cấu hình thiết bị
-- ✅ Quản lý lưu trữ (backup/restore)
+| Thông số | Giá trị |
+|---|---|
+| Số van | 80 |
+| Số board (74HC595) | 10 |
+| Van mỗi board | 8 |
+| Frame size | **14 bytes** = 4 (timestamp) + 10 (bits) |
+| Queue size | 512 frame |
+| Giao tiếp | WebSocket port **3333** |
+| Timestamp resolution | **1 ms** |
+| Shift order | MSB first (bit 7 ra trước) |
 
 ---
 
-## 🌊 Cấu Trúc Dữ Liệu Hiệu Ứng
-
-### **Hiệu Ứng (Effect) Là Gì?**
-
-**Hiệu ứng** (effect) là một **chuỗi dữ liệu trạng thái van theo thời gian** tạo nên một animation trực quan. Mỗi hiệu ứng được tạo thành từ nhiều **khung hình** (frame), mỗi frame định nghĩa trạng thái mở/đóng của các van tại một thời điểm cụ thể.
-
-### **Cấu Trúc Khung Hình (Frame Structure)**
-
-Mỗi frame chiếm **14 bytes**:
-
-```c
-struct Frame {
-    uint32_t ts_ms;          // Thời gian (milliseconds) - 4 bytes
-    uint8_t  bits[NUM_BOARDS];  // Trạng thái van - 10 bytes (80 van)
-};
-```
-
-| Trường   | Kích Thước | Mục Đích                                             |
-| -------- | ---------- | ---------------------------------------------------- |
-| `ts_ms`  | 4 bytes    | Offset thời gian từ đầu animation (milliseconds)     |
-| `bits[]` | 10 bytes   | Trạng thái nhị phân 80 van: bit=1 (mở), bit=0 (đóng) |
-
-### **Ánh Xạ Van trong Mảng Bits**
+## 2. Đánh số van (valve numbering)
 
 ```
-byte[0]: van 0-7      (Van 0-7)
-byte[1]: van 8-15     (Van 8-15)
-byte[2]: van 16-23    (Van 16-23)
-  ⋮
-byte[9]: van 72-79    (Van 72-79)
+Van số:  1   2   3   4   5   6   7   8 | 9  10  11  ...  16 | ... | 73  74  ...  80
+         ←────────── byte[0] ──────────► ←──── byte[1] ──────►     ←──── byte[9] ──►
+Bit:     7   6   5   4   3   2   1   0   7   6   5  ...   0         7   6   ...   0
 ```
 
-Mỗi bit trong một byte đại diện cho một van:
+**Công thức (0-indexed, van đầu = van số 0):**
 
 ```
-byte[0] = 0b10101010
-           └─ bit 7 = Van 7 (MSB - quan trọng nhất)
-              bit 6 = Van 6
-              ...
-              bit 0 = Van 0 (LSB - ít quan trọng nhất)
+byte_index = valve >> 3          // chia 8, lấy nguyên
+bit_index  = 7 - (valve & 7)    // bit cao nhất = van đầu của mỗi board
 ```
 
-### **Ví Dụ: Hiệu Ứng Sóng Nước**
-
-Tạo animation sóng di chuyển từ trái sang phải:
+**Đặt bit cho van v trong mảng bytes:**
 
 ```
-Frame 0: ts_ms=0    | bits=[0x00, 0xFF, 0x00, ...] = Van 8-15 MỞ
-Frame 1: ts_ms=100  | bits=[0x00, 0x00, 0xFF, ...] = Van 16-23 MỞ
-Frame 2: ts_ms=200  | bits=[0x00, 0x00, 0x00, ...] = Van 24-31 MỞ
-Frame 3: ts_ms=300  | bits=[0xFF, 0x00, 0x00, ...] = Van 0-7 MỞ (quay về đầu)
+buf[v >> 3] |= (1 << (7 - (v & 7)))
 ```
 
-**Kết Quả:** Một làn sáng giống như sóng di chuyển từ trái sang phải trên rèm nước trong 300ms.
+**Ví dụ cụ thể:**
 
-### **Animation = Nhiều Frames**
+| Van (0-idx) | Van (1-idx) | byte | bit | mask hex |
+|---|---|---|---|---|
+| 0 | 1 | 0 | 7 | `byte[0] = 0x80` |
+| 7 | 8 | 0 | 0 | `byte[0] = 0x01` |
+| 8 | 9 | 1 | 7 | `byte[1] = 0x80` |
+| 39 | 40 | 4 | 7 | `byte[4] = 0x80` |
+| 79 | 80 | 9 | 0 | `byte[9] = 0x01` |
 
+**Mở van 1, 5, 9 (0-indexed: 0, 4, 8):**
 ```
-File Animation (.bin):
-[Frame 0: 14 bytes]
-[Frame 1: 14 bytes]
-[Frame 2: 14 bytes]
-     ⋮
-[Frame N: 14 bytes]
+byte[0] = (1<<7) | (1<<3) = 0b10001000 = 0x88
+byte[1] = (1<<7)          = 0b10000000 = 0x80
+byte[2..9] = 0x00
 ```
-
-**Kích thước tổng = N × 14 bytes**
-
-**Quá trình phát lại (Playback):**
-
-1. Gửi Frame 0 → Van cập nhật lúc t=0ms
-2. Chờ đến thời gian của Frame 1 → Gửi Frame 1 → Van cập nhật lúc t=100ms
-3. Tiếp tục cho đến khi animation kết thúc
 
 ---
 
-## 🏗️ Kiến Trúc Hệ Thống
+## 3. Định dạng frame nhị phân
 
-### **Các Thành Phần Chính**
+Mỗi frame = **14 bytes** liên tiếp:
+
+```
+Byte  0   1   2   3   4   5   6   7   8   9  10  11  12  13
+     ├───────────────┤├───────────────────────────────────────┤
+       ts_ms (LE u32)          bits[10]
+```
+
+| Offset | Size | Kiểu | Endian | Ý nghĩa |
+|---|---|---|---|---|
+| 0 | 4 | uint32 | Little-Endian | `ts_ms` — thời điểm thực thi (ms từ TS_START) |
+| 4 | 10 | uint8[10] | — | `bits` — trạng thái 80 van |
+
+### Giá trị ts_ms đặc biệt (reserved)
+
+| ts_ms | Hex (LE bytes) | Ý nghĩa |
+|---|---|---|
+| `0xFFFFFFFF` | `FF FF FF FF` | **TS_RESET** — xóa queue, tắt tất cả van |
+| `0xFFFFFFFE` | `FE FF FF FF` | **TS_START** — bắt đầu đồng hồ, scheduler chạy |
+| `0x00000000` – `0xFFFFFFFD` | — | Frame dữ liệu thông thường |
+
+---
+
+## 4. Giao thức stream — thứ tự bắt buộc
+
+```
+① [TS_RESET]              xóa state cũ, tắt van
+② [TS_START]              t0 = millis(), scheduler bắt đầu
+③ [Frame ts=0    bits=…]  các frame dữ liệu theo thứ tự ts tăng dần
+④ [Frame ts=80   bits=…]
+   ...
+⑤ [Frame ts=N    bits=0]  sentinel cuối — tắt tất cả van
+```
+
+> **Quan trọng:** Gửi toàn bộ luồng binary liên tục, không delay giữa các byte.
+> ESP32 nhận vào buffer, parse đủ 14 byte thì xử lý ngay.
+
+### Cấu trúc bytes của từng frame điều khiển
+
+**TS_RESET:**
+```
+FF FF FF FF   00 00 00 00 00 00 00 00 00 00
+```
+
+**TS_START:**
+```
+FE FF FF FF   00 00 00 00 00 00 00 00 00 00
+```
+
+**Frame dữ liệu tại t=160ms, tất cả van board 1 ON:**
+```
+A0 00 00 00   FF 00 00 00 00 00 00 00 00 00
+↑ 160 = 0xA0  ↑ bits[0]=0xFF = van 1-8 ON
+```
+
+---
+
+## 5. Cấu trúc file `.bin`
+
+File `.bin` = **nối tiếp các frame 14-byte**, không header, không padding.
 
 ```
 ┌─────────────────────────────────────────┐
-│       Giao Diện Web (index.html)        │
-│   - Tạo animation                       │
-│   - Cấu hình                            │
-│   - Quản lý dữ liệu                     │
-└──────────────┬──────────────────────────┘
-               │ WebSocket
-               ▼
-┌──────────────────────────────────┐
-│   ESP32 (PlatformIO)             │
-│ ┌────────────────────────────┐   │
-│ │ TcpServer (WebSocket)      │   │
-│ │ - Nhận frame               │   │
-│ │ - Phát trạng thái          │   │
-│ └────────────┬───────────────┘   │
-│              │                    │
-│ ┌────────────▼───────────────┐   │
-│ │ FrameQueue (Hàng Frame)    │   │
-│ │ - Lưu frame vào vùng đệm   │   │
-│ └────────────┬───────────────┘   │
-│              │                    │
-│ ┌────────────▼───────────────┐   │
-│ │ Scheduler (Bộ Lên Lịch)    │   │
-│ │ - Điều khiển thời gian     │   │
-│ │ - Áp dụng thay đổi van     │   │
-│ └────────────┬───────────────┘   │
-│              │                    │
-│ ┌────────────▼───────────────┐   │
-│ │ ValveDriver (ShiftRegister)│   │
-│ │ - Gửi bytes tới phần cứng  │   │
-│ └────────────┬───────────────┘   │
-│              │                    │
-│ ┌────────────▼───────────────┐   │
-│ │ SDManager                  │   │
-│ │ - Tải/lưu animation        │   │
-│ └────────────────────────────┘   │
-└──────────────────────────────────┘
-               │ SPI
-               ▼
-      ┌──────────────────┐
-      │   Thẻ SD         │
-      │ /effects/        │
-      │  ├─ effect1.bin  │
-      │  ├─ effect2.bin  │
-      │  └─ effects.json │
-      └──────────────────┘
+│ Frame  0 : TS_RESET  (14 bytes)          │
+│ Frame  1 : TS_START  (14 bytes)          │
+│ Frame  2 : ts=0      (14 bytes)          │
+│ Frame  3 : ts=Δt     (14 bytes)          │
+│ ...                                      │
+│ Frame  N : ts=T_max  (14 bytes) bits=0   │  ← sentinel all-off
+└─────────────────────────────────────────┘
+Total = (N + 1) × 14 bytes
 ```
 
-### **Kết Nối Phần Cứng**
-
-```
-ESP32 GPIO → 74HC245 Transceiver → 74HC595 Shift Registers → Van Solenoid
-
-GPIO2  (SHCP) → Serial Clock Input (Xung Xuyến)
-GPIO4  (STCP) → Storage Clock Input (Latch - Khóa)
-GPIO23 (DS)   → Serial Data Input (Dữ Liệu Nối Tiếp)
-```
-
-**Xuyến (Daisy-chain):** Mỗi 74HC595 xuất ra dữ liệu vào shift register tiếp theo, cho phép điều khiển nhiều van tuần tự.
+**Kích thước điển hình:**
+- 100 rows × 80ms/row → 103 frames → **1442 bytes**
+- 512 frames tối đa trong queue → gửi nhiều đợt nếu animation dài hơn
 
 ---
 
-## ⚡ Hướng Dẫn Nhanh
+## 6. Code mẫu — xây dựng file `.bin`
 
-### **Yêu Cầu Cần Thiết**
+### Python
 
-- PlatformIO được cài đặt
-- Board phát triển ESP32
-- Mạng WiFi (SSID: `SGM`, Mật khẩu: `19121996`)
-- Python 3.8+ cho backend (tùy chọn)
+```python
+import struct
 
-### **Build & Upload Firmware**
+NUM_BOARDS = 10
+FRAME_SIZE = 14
+TS_RESET   = 0xFFFFFFFF
+TS_START   = 0xFFFFFFFE
 
-```bash
-# Cài đặt thư viện
-platformio lib install
+def pack_frame(ts_ms: int, bits: bytes) -> bytes:
+    return struct.pack('<I', ts_ms) + bits
 
-# Biên dịch firmware
-platformio run
+def valve_bits(valves_0indexed: list) -> bytes:
+    """valves_0indexed: danh sách van muốn mở (0..79)"""
+    buf = bytearray(NUM_BOARDS)
+    for v in valves_0indexed:
+        buf[v >> 3] |= (1 << (7 - (v & 7)))
+    return bytes(buf)
 
-# Upload lên ESP32
-platformio run --target upload
+def build_animation(rows: list, row_interval_ms: int = 80) -> bytes:
+    """
+    rows: list of list[int] — mỗi phần tử là list số van mở (0-indexed)
+    Ví dụ: rows = [[0,1,2], [3,4,5], ...]
+    """
+    stream = bytearray()
+    stream += pack_frame(TS_RESET, b'\x00' * NUM_BOARDS)
+    stream += pack_frame(TS_START, b'\x00' * NUM_BOARDS)
+    for i, open_valves in enumerate(rows):
+        ts = i * row_interval_ms
+        stream += pack_frame(ts, valve_bits(open_valves))
+    # sentinel: tắt tất cả
+    stream += pack_frame(len(rows) * row_interval_ms, b'\x00' * NUM_BOARDS)
+    return bytes(stream)
 
-# Theo dõi output từ Serial
-platformio device monitor
+# ── Ví dụ: đường chéo từ van 0 đến van 79 ──
+rows = [[i] for i in range(80)]           # mỗi row mở 1 van
+animation = build_animation(rows, row_interval_ms=80)
+
+with open('diagonal.bin', 'wb') as f:
+    f.write(animation)
+
+print(f"File size: {len(animation)} bytes, {len(animation)//14} frames")
 ```
 
-### **Truy Cập Giao Diện Web**
+### Python — Sub-frame smooth timing (đường chéo mịn)
 
-1. Mở trình duyệt: `http://<IP_ESP32>/`
-2. Đi tới tab **Quản Lý Dữ Liệu**
-3. Tạo hoặc tải animation
+```python
+def build_smooth_diagonal(num_valves=80, row_ms=80, num_rows=32) -> bytes:
+    """
+    Mỗi van mở tại timestamp riêng (ms chính xác) thay vì đồng loạt.
+    Kết quả: đường chéo hoàn toàn mịn, không bậc thang Bresenham.
+    """
+    slope = num_rows / num_valves   # rows per valve step
 
-### **Máy Chủ Backend** (Python - Tùy Chọn)
+    events = []
+    for v in range(num_valves):
+        t_open  = round(v * slope * row_ms)
+        t_close = t_open + row_ms
+        events.append((t_open,  v, True ))
+        events.append((t_close, v, False))
 
-```bash
-# Cài đặt thư viện Python
-pip install -r requirements_backend.txt
+    # Sort: cùng ts thì open trước close
+    events.sort(key=lambda e: (e[0], not e[2]))
 
-# Chạy máy chủ
-python backend.py
+    state  = bytearray(NUM_BOARDS)
+    stream = bytearray()
+    stream += pack_frame(TS_RESET, b'\x00' * NUM_BOARDS)
+    stream += pack_frame(TS_START, b'\x00' * NUM_BOARDS)
+
+    i = 0
+    while i < len(events):
+        t = events[i][0]
+        while i < len(events) and events[i][0] == t:
+            _, valve, is_open = events[i]
+            b, bit = valve >> 3, 7 - (valve & 7)
+            if is_open: state[b] |=  (1 << bit)
+            else:       state[b] &= ~(1 << bit)
+            i += 1
+        stream += pack_frame(t, bytes(state))
+
+    # sentinel
+    stream += pack_frame(t + row_ms, b'\x00' * NUM_BOARDS)
+    return bytes(stream)
 ```
 
----
+### JavaScript / Node.js
 
-## 📚 Tài Liệu Tham Khảo
+```javascript
+const NUM_BOARDS = 10;
+const TS_RESET   = 0xFFFFFFFF;
+const TS_START   = 0xFFFFFFFE;
 
-### **Hướng Dẫn Chính**
+function packFrame(ts_ms, bits) {
+    const buf = Buffer.alloc(14);
+    buf.writeUInt32LE(ts_ms >>> 0, 0);  // >>> 0 đảm bảo unsigned
+    Buffer.from(bits).copy(buf, 4);
+    return buf;
+}
 
-| File                                                 | Nội Dung                                  |
-| ---------------------------------------------------- | ----------------------------------------- |
-| [QUICK_START.md](QUICK_START.md)                     | Cấu hình cơ bản và tạo animation đầu tiên |
-| [BACKEND_GUIDE.md](BACKEND_GUIDE.md)                 | API backend và các endpoint               |
-| [WEB_UI_CONFIG.md](WEB_UI_CONFIG.md)                 | Tuỳ chọn cấu hình giao diện Web           |
-| [DATA_MANAGEMENT_GUIDE.md](DATA_MANAGEMENT_GUIDE.md) | Các tính năng tab Quản Lý Dữ Liệu         |
+function valveBits(valves) {
+    const buf = Buffer.alloc(NUM_BOARDS);
+    for (const v of valves) buf[v >> 3] |= (1 << (7 - (v & 7)));
+    return buf;
+}
 
-### **Phần Cứng & Xử Lý Sự Cố**
+function buildAnimation(rows, rowIntervalMs = 80) {
+    const chunks = [];
+    chunks.push(packFrame(TS_RESET, Buffer.alloc(10)));
+    chunks.push(packFrame(TS_START, Buffer.alloc(10)));
+    rows.forEach((openValves, i) => {
+        chunks.push(packFrame(i * rowIntervalMs, valveBits(openValves)));
+    });
+    chunks.push(packFrame(rows.length * rowIntervalMs, Buffer.alloc(10)));
+    return Buffer.concat(chunks);
+}
 
-| File                                                     | Nội Dung                            |
-| -------------------------------------------------------- | ----------------------------------- |
-| [SD_CARD_MODULE.md](SD_CARD_MODULE.md)                   | Cấu hình thẻ SD và cấu trúc thư mục |
-| [CONFIG_UDP.md](CONFIG_UDP.md)                           | Giao thức UDP cho cấu hình          |
-| [TROUBLESHOOTING_SUMMARY.md](TROUBLESHOOTING_SUMMARY.md) | Các vấn đề phổ biến và giải pháp    |
-
-### **Phát Triển**
-
-| File                                         | Nội Dung                    |
-| -------------------------------------------- | --------------------------- |
-| [ESP32_CODE_UPDATE.md](ESP32_CODE_UPDATE.md) | Quy trình cập nhật firmware |
-| [WEBSOCKET_DEBUG.md](WEBSOCKET_DEBUG.md)     | Gỡ lỗi giao thức WebSocket  |
-
----
-
-## ⚙️ Cấu Hình Phần Cứng
-
-### **Cấu Hình Chân GPIO** (xem `include/config.h`)
-
-```c
-#define PIN_SHCP    2      // GPIO2  - Xung xuyến shift register
-#define PIN_STCP    4      // GPIO4  - Khóa (Latch)
-#define PIN_DS      23     // GPIO23 - Dữ liệu nối tiếp
-
-#define NUM_BOARDS  10     // 10 shift register = 80 van
-#define NUM_VALVES  80     // 10 × 8 bit/register
-```
-
-### **Giao Thức Frame**
-
-- **Kích Thước Frame:** 14 bytes (cố định)
-- **Kích Thước Max Hàng:** 512 frame
-- **Thời Lượng Animation Max:** Phụ thuộc không gian SD (~4MB có sẵn)
-
----
-
-## 🔧 Cấu Hình Hệ Thống
-
-**Thông Tin WiFi** (`include/config.h`):
-
-```c
-#define WIFI_SSID        "SGM"
-#define WIFI_PASSWORD    "19121996"
-```
-
-**Cổng Máy Chủ:**
-
-- WebSocket: Cổng 3333 (`ws://<IP>:3333`)
-- UDP Config: Cổng 8888
-
-**Bộ Đếm Thời Gian (Watchdog):** 5000ms (thiết bị khởi động lại nếu task chính bị treo)
-
----
-
-## 📊 Cấu Trúc Tệp Dự Án
-
-```
-project/
-├── src/
-│   ├── main.cpp                # Điểm vào chính ESP32
-│   └── sd_manager.cpp          # Các phép toán thẻ SD
-├── include/
-│   ├── config.h                # Cấu hình & định nghĩa chân
-│   ├── frame_queue.h           # Hàng buffer frame (vòng)
-│   ├── valve_driver.h          # Điều khiển shift register
-│   ├── tcp_server.h            # Máy chủ WebSocket
-│   ├── scheduler.h             # Timing & execution
-│   ├── sd_manager.h            # Giao diện thẻ SD
-│   ├── config_server.h         # Endpoint cấu hình UDP
-│   └── sd_web_handler.h        # Web file serving
-├── lib/                        # Thư viện bên ngoài
-├── test/                       # Unit tests
-├── index.html                  # Giao diện Web
-├── backend.py                  # Backend Python (tùy chọn)
-└── platformio.ini              # Cấu hình PlatformIO
+// Ví dụ
+const rows = Array.from({length: 80}, (_, i) => [i]);
+const bin = buildAnimation(rows, 80);
+require('fs').writeFileSync('diagonal.bin', bin);
 ```
 
 ---
 
-## 📞 Hỗ Trợ & Xử Lý Sự Cố
+## 7. Gửi file qua WebSocket
 
-**Các Vấn Đề Phổ Biến:**
+### Python
 
-- **ESP32 không kết nối WiFi:**
-  - Kiểm tra SSID/password trong `config.h`
-  - Xác minh cường độ tín hiệu WiFi
-  - Xem [TROUBLESHOOTING_SUMMARY.md](TROUBLESHOOTING_SUMMARY.md)
+```python
+import websocket
 
-- **Frames không phát:**
-  - Kiểm tra định dạng file animation (14 bytes/frame)
-  - Kiểm tra hàng frame không đầy (max 512 frame)
-  - Theo dõi output Serial để tìm lỗi
+def send_bin(ip: str, filepath: str, port: int = 3333):
+    ws = websocket.WebSocket()
+    ws.connect(f'ws://{ip}:{port}')
+    with open(filepath, 'rb') as f:
+        ws.send_binary(f.read())
+    ws.close()
 
-- **Thẻ SD không được phát hiện:**
-  - Thử định dạng lại (FAT32)
-  - Kiểm tra kết nối chân
-  - Xem [SD_CARD_MODULE.md](SD_CARD_MODULE.md)
+send_bin('192.168.1.222', 'diagonal.bin')
+```
+
+### Python — gửi nhiều đợt (animation dài hơn 512 frames)
+
+```python
+CHUNK_FRAMES = 400   # gửi 400 frame mỗi lần (< 512 queue limit)
+
+def send_chunked(ip: str, frames_data: list, row_ms: int):
+    ws = websocket.WebSocket()
+    ws.connect(f'ws://{ip}:3333')
+
+    # Gửi RESET + START một lần duy nhất
+    ws.send_binary(
+        pack_frame(TS_RESET, b'\x00'*10) +
+        pack_frame(TS_START, b'\x00'*10)
+    )
+
+    for i in range(0, len(frames_data), CHUNK_FRAMES):
+        chunk = frames_data[i:i+CHUNK_FRAMES]
+        payload = bytearray()
+        for row_idx, open_valves in enumerate(chunk):
+            ts = (i + row_idx) * row_ms
+            payload += pack_frame(ts, valve_bits(open_valves))
+        ws.send_binary(bytes(payload))
+        time.sleep(CHUNK_FRAMES * row_ms / 1000 * 0.8)  # chờ ESP32 drain
+
+    # Sentinel
+    ws.send_binary(pack_frame(len(frames_data)*row_ms, b'\x00'*10))
+    ws.close()
+```
 
 ---
 
-## 📝 Giấy Phép
+## 8. Lệnh JSON (text command)
 
-Độc quyền - Hệ Thống Điều Khiển Rèm Nước
+Ngoài binary frame, ESP32 cũng nhận WebSocket text (JSON):
+
+```json
+{"cmd":"ALL_OFF"}
+{"cmd":"ALL_ON"}
+{"cmd":"STREAM_STOP"}
+{"cmd":"SET","bits":"FF00FF00FF00FF00FF00"}
+{"cmd":"SET_MODE","mode":"effect","pattern":"rain","sensitivity":50}
+{"cmd":"SET_MODE","mode":"effect","pattern":"heart","sensitivity":50}
+{"cmd":"SET_MODE","mode":"effect","pattern":"star","sensitivity":50}
+{"cmd":"SET_MODE","mode":"effect","pattern":"wave","sensitivity":60}
+{"cmd":"SET_MODE","mode":"effect","pattern":"script","sensitivity":50}
+{"cmd":"SET_MODE","mode":"clock"}
+{"cmd":"SET_MODE","mode":"sound","pattern":"ripple","sensitivity":70}
+{"cmd":"SET_MODE","mode":"text","pattern":"HELLO","sensitivity":80}
+{"cmd":"SET_MODE","mode":"stream"}
+```
+
+`"bits"` trong lệnh SET = chuỗi hex 20 ký tự (10 bytes), không có 0x prefix.
 
 ---
 
-**Cập Nhật Lần Cuối:** Tháng 4 năm 2026
+## 9. Giới hạn và ràng buộc
 
-Để biết thông tin chi tiết về bất kỳ thành phần nào, hãy xem các tệp tài liệu được liệt kê ở trên.
+| Thông số | Giới hạn | Ghi chú |
+|---|---|---|
+| Frame size | **14 bytes cố định** | 4 ts + 10 bits |
+| Queue size | **512 frames** | Vượt → frame bị drop |
+| ts_ms range | `0` – `0xFFFFFFFD` | 2 giá trị cao nhất reserved |
+| ts_ms endian | **Little-Endian** | `struct.pack('<I', ...)` |
+| Timestamp resolution | **1 ms** | `millis()` ESP32 |
+| Shift order | **MSB first** | bit 7 = van đầu mỗi board |
+| Auto-finish | Sau 2s queue rỗng | ESP32 tự tắt van |
+| WebSocket | Binary (opcode 0x2) | RFC 6455 |
+| Port | **3333** | |
+
+---
+
+## 10. Checklist khi viết phần mềm
+
+```
+☐ Timestamp Little-Endian (struct.pack('<I', ts))
+☐ TS_RESET = 0xFFFFFFFF  →  bytes: [FF, FF, FF, FF]
+☐ TS_START = 0xFFFFFFFE  →  bytes: [FE, FF, FF, FF]
+☐ Thứ tự: RESET trước, START sau, data frames cuối
+☐ Van đánh số từ 0 (hoặc 1 — nhất quán trong code)
+☐ bit 7 của byte[0] = van 0 (van số 1 theo 1-indexed)
+☐ Gửi dưới dạng WebSocket binary message (không phải text)
+☐ Sentinel frame (bits=0) ở cuối để tắt van
+☐ Không gửi quá 512 frame mà không chờ drain
+```
+
+---
+
+## 11. Sơ đồ luồng phần mềm thiết kế
+
+```
+[Editor — ma trận 80×N bool]
+         │
+         ▼ chọn mode
+  ┌──────────────┐      ┌────────────────────────┐
+  │  Grid mode   │      │    Smooth mode          │
+  │  ts = row×ms │      │  ts = linearFit(col)×ms │
+  └──────┬───────┘      └──────────┬──────────────┘
+         │                         │
+         └──────────┬──────────────┘
+                    ▼
+         [Pack bits: buf[v>>3] |= 1<<(7-(v&7))]
+                    │
+                    ▼
+         [Build stream: RESET + START + frames + sentinel]
+                    │
+            ┌───────┴────────┐
+            ▼                ▼
+      [Xuất .bin]     [Gửi WebSocket ws://IP:3333]
+```

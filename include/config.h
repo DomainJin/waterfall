@@ -66,6 +66,12 @@
 // ── Microphone ───────────────────────────────────────────────
 #define MIC_PIN  34   // GPIO34 — ADC input-only, connects to electret mic (+) via 4.7kΩ pull-up
 
+// ── Pump & Level sensors ──────────────────────────────────────
+#define PIN_LEVEL_LOW   32   // GPIO32 — cảm biến mức thấp (INPUT_PULLUP, LOW = nước thấp)
+#define PIN_LEVEL_HIGH  33   // GPIO33 — cảm biến mức đầy  (INPUT_PULLUP, LOW = nước đầy)
+#define PIN_PUMP        17   // GPIO17 — relay kích bơm     (HIGH = bơm chạy)
+#define PUMP_TIMEOUT_MS (5UL * 60 * 1000)   // Tắt bơm cưỡng bức sau 5 phút
+
 // ── Firmware version ─────────────────────────────────────────
 // Tăng số này mỗi lần build để xác nhận OTA thành công
 #define FW_VERSION "1.1.0"

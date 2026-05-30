@@ -61,8 +61,9 @@ void MQTTManager::_reconnect() {
         Serial.println("[MQTT] Kết nối thành công");
 
         // Subscribe các topic nhận lệnh
-        _client.subscribe(MQTT_TOPIC_VALVE,  1);
-        _client.subscribe(MQTT_TOPIC_STREAM, 1);
+        _client.subscribe(MQTT_TOPIC_VALVE,    1);
+        _client.subscribe(MQTT_TOPIC_STREAM,   1);
+        _client.subscribe(MQTT_TOPIC_PUMP_CMD, 1);
 
         // Thông báo online kèm IP
         String ip = WiFi.localIP().toString();

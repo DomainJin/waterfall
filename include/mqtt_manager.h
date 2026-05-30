@@ -8,10 +8,12 @@
 #include <PubSubClient.h>
 
 // ── MQTT Topics (phải khớp với backend.py) ────────────────────────────────
-#define MQTT_TOPIC_STATUS   "waterfall/status"
-#define MQTT_TOPIC_VALVE    "waterfall/cmd/valve"
-#define MQTT_TOPIC_STREAM   "waterfall/cmd/stream"
-#define MQTT_TOPIC_CMD_ALL  "waterfall/cmd/#"
+#define MQTT_TOPIC_STATUS      "waterfall/status"
+#define MQTT_TOPIC_VALVE       "waterfall/cmd/valve"
+#define MQTT_TOPIC_STREAM      "waterfall/cmd/stream"
+#define MQTT_TOPIC_PUMP_CMD    "waterfall/cmd/pump"    // nhận lệnh bơm
+#define MQTT_TOPIC_PUMP_STATUS "waterfall/pump/status" // publish trạng thái bơm
+#define MQTT_TOPIC_CMD_ALL     "waterfall/cmd/#"
 
 // ── Callback type ─────────────────────────────────────────────────────────
 // Được gọi khi nhận lệnh từ cloud: (topic, payload)
@@ -31,8 +33,13 @@ public:
     // Gọi trong loop() — xử lý kết nối và messages
     void tick();
 
-    // Publish trạng thái lên cloud
+    // Publish trạng thái lên cloud (topic cố định = MQTT_TOPIC_STATUS, retain=true)
     void publishStatus(const String& json);
+
+    // Publish tuỳ chọn topic (dùng cho pump status, v.v.)
+    void publish(const char* topic, const String& json, bool retain = false) {
+        if (_client.connected()) _client.publish(topic, json.c_str(), retain);
+    }
 
     // Đăng ký callback nhận lệnh
     void onCommand(MQTTCommandCallback cb) { _callback = cb; }

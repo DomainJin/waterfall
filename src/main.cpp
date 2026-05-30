@@ -15,6 +15,7 @@
 #include "text_mode.h"
 #include "ota_server.h"
 #include "effect_mode.h"
+#include "pump_controller.h"
 
 
 // ============================================================
@@ -35,7 +36,8 @@ SDManager     g_sd;
 ConfigServer  g_cfg;
 BLEConfig     g_ble;
 MQTTManager   g_mqtt;
-OTAServer     g_ota(g_valve);
+OTAServer       g_ota(g_valve);
+PumpController  g_pump;
 
 // ============================================================
 //  WiFi setup
@@ -98,6 +100,11 @@ void setup() {
         g_tcp.broadcastJSON(String(buf));
     });
     Serial.printf("[SETUP] ✓ Valve driver initialized\n");
+    Serial.flush();
+
+    // Setup pump controller
+    g_pump.begin();
+    Serial.printf("[SETUP] ✓ Pump controller initialized\n");
     Serial.flush();
 
     // Setup microphone
@@ -358,6 +365,14 @@ void setup() {
                         Serial.println("[MQTT] SET_MODE → STREAM");
                     }
                 }
+            } else if (topic == MQTT_TOPIC_PUMP_CMD) {
+                // {"cmd":"ON"}  {"cmd":"OFF"}  {"cmd":"AUTO"}  {"cmd":"MANUAL"}
+                if      (payload.indexOf("\"ON\"")     >= 0) { g_pump.setPump(true);  }
+                else if (payload.indexOf("\"OFF\"")    >= 0) { g_pump.setPump(false); }
+                else if (payload.indexOf("\"AUTO\"")   >= 0) { g_pump.setMode(PumpController::AUTO);   }
+                else if (payload.indexOf("\"MANUAL\"") >= 0) { g_pump.setMode(PumpController::MANUAL); }
+                Serial.printf("[MQTT] PUMP cmd: %s\n", payload.c_str());
+
             } else if (topic == MQTT_TOPIC_STREAM) {
                 // {"frame":"AABBCC..."} — hex encoded frame bytes
                 int idx = payload.indexOf("\"frame\":\"");
@@ -405,8 +420,28 @@ void setup() {
 // ============================================================
 
 // Heartbeat timing
-static uint32_t last_heartbeat = 0;
-const  uint16_t HEARTBEAT_MS = 5000;  // Show every 5 seconds
+static uint32_t last_heartbeat  = 0;
+const  uint16_t HEARTBEAT_MS    = 5000;
+
+// Pump MQTT publish timing
+static uint32_t last_pump_pub   = 0;
+const  uint32_t PUMP_PUB_MS     = 30000;  // publish định kỳ mỗi 30s
+
+// Build JSON trạng thái bơm
+static String pumpStatusJSON() {
+    char buf[128];
+    const PumpController& p = g_pump;
+    snprintf(buf, sizeof(buf),
+        "{\"pump\":%s,\"level_low\":%s,\"level_high\":%s,"
+        "\"mode\":\"%s\",\"run_sec\":%lu}",
+        p.pumpOn()    ? "true" : "false",
+        p.levelLow()  ? "true" : "false",
+        p.levelHigh() ? "true" : "false",
+        p.mode() == PumpController::AUTO ? "auto" : "manual",
+        p.pumpRunSec()
+    );
+    return String(buf);
+}
 
 void loop() {
     uint32_t loop_start = micros();
@@ -456,6 +491,21 @@ void loop() {
     // PRIORITY 6: OTA firmware update (HTTP, port 8080)
     // ─────────────────────────────────────────────────────
     g_ota.tick();
+
+    // ─────────────────────────────────────────────────────
+    // PRIORITY 7: Pump controller — đọc cảm biến + điều khiển relay
+    // ─────────────────────────────────────────────────────
+    g_pump.tick();
+
+    // Publish pump status lên MQTT: khi có thay đổi hoặc mỗi 30s
+    if (g_mqtt.isConnected()) {
+        uint32_t now = millis();
+        bool due = (now - last_pump_pub >= PUMP_PUB_MS);
+        if (g_pump.takeChanged() || due) {
+            last_pump_pub = now;
+            g_mqtt.publish(MQTT_TOPIC_PUMP_STATUS, pumpStatusJSON(), /*retain=*/true);
+        }
+    }
 
     // ─────────────────────────────────────────────────────
     // Heartbeat: Show ESP is alive every 5 seconds
