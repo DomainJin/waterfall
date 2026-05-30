@@ -4990,8 +4990,11 @@ Note: Use Python tool for UDP:<br/>
         const file = document.getElementById('ota-file').files[0];
         if (!file) { alert('Chọn file firmware.bin trước'); return; }
 
-        const espIp = document.getElementById('ip').value.trim();
-        if (!espIp) { alert('Chưa có ESP32 IP — kết nối LAN trước'); return; }
+        // Ưu tiên: IP từ WebSocket hiện tại → localStorage → ô nhập tay
+        const espIp = (ws && ws.url ? new URL(ws.url).hostname : null)
+                   || localStorage.getItem('selected_esp_ip')
+                   || document.getElementById('ip').value.trim();
+        if (!espIp) { alert('Chưa có ESP32 IP — kết nối LAN hoặc chọn thiết bị trước'); return; }
 
         const stat   = document.getElementById('ota-status');
         const wrap   = document.getElementById('ota-prog-wrap');
