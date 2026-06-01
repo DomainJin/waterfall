@@ -1592,29 +1592,15 @@
         return bits;
       }
 
-      // ── Smooth text simulation (per-column timing with linear regression) ──
-      function _textSmoothFit(bm, c, baseRow, radius) {
-        // Weighted linear regression on neighboring columns → fractional row at c
-        let sw=0, sx=0, sy=0, sxx=0, sxy=0, n=0;
-        for (let dc = -radius; dc <= radius; dc++) {
-          const cc = c + dc;
-          if (cc < 0 || cc >= VALVES) continue;
-          const rowSrch = 3;
-          let bestR = -1, bestD = rowSrch + 1;
-          for (let r = Math.max(0, baseRow-rowSrch); r < Math.min(bm.length, baseRow+rowSrch+1); r++) {
-            if ((bm[r][cc >> 3] >> (7-(cc&7))) & 1) {
-              const d = Math.abs(r - baseRow);
-              if (d < bestD) { bestD = d; bestR = r; }
-            }
-          }
-          if (bestR < 0) continue;
-          const w = 1 / (Math.abs(dc) + 1);
-          sw  += w;  sx  += w*dc;  sy  += w*bestR;
-          sxx += w*dc*dc;  sxy += w*dc*bestR;  n++;
-        }
-        if (n < 2) return baseRow;
-        const det = sw*sxx - sx*sx;
-        return Math.abs(det) < 1e-6 ? sy/sw : (sxx*sy - sx*sxy) / det;
+      // ── Text smooth timing: uses stroke-function analysis on bitmap ──
+      // Converts a bitmap (array of Uint8Array) to pixelRows format, then
+      // calls _buildSmoothColIv for stroke-fitted per-column timing.
+      function _textBitmapToColIv(bm, rowMs) {
+        // Convert Uint8Array bitmap rows → boolean pixelRows[r][c]
+        const pixelRows = bm.map(row =>
+          Array.from({length: VALVES}, (_, c) => !!((row[c>>3] >> (7-(c&7))) & 1))
+        );
+        return _buildSmoothColIv(pixelRows, rowMs);
       }
 
       function startTextLocalSim(rowMs, gapMs, text, scale = 2) {
@@ -1649,25 +1635,19 @@
           return bm;
         }
 
-        // Schedule one display cycle: compute per-column smooth intervals → liveColIv
+        // Schedule one display cycle: stroke-fit colIv → liveColIv
         function scheduleCycle(t0) {
           const bm = buildBitmap();
-          renderFramePreview(bm[0], `text smooth scale=${scale}`);
+          renderFramePreview(bm[0], `text stroke-fit scale=${scale}`);
 
+          // Use global stroke-function analysis for accurate smooth timing
+          const colIv = _textBitmapToColIv(bm, rowMs);
           for (let c = 0; c < VALVES; c++) {
-            let runStart = -1;
-            for (let r = 0; r <= totalFontR; r++) {
-              const on = r < totalFontR ? (bm[r][c>>3] >> (7-(c&7))) & 1 : 0;
-              if (on && runStart < 0) {
-                runStart = r;
-              } else if (!on && runStart >= 0) {
-                const duration = (r - runStart) * rowMs;
-                // smooth: find fractional row position via local linear fit
-                const frac    = _textSmoothFit(bm, c, runStart, 5);
-                const openMs  = t0 + Math.max(0, Math.round(frac * rowMs));
-                liveColIv[c].push({ vOpen: openMs, vClose: openMs + duration });
-                runStart = -1;
-              }
+            for (const iv of colIv[c]) {
+              liveColIv[c].push({
+                vOpen:  t0 + iv.vOpen,
+                vClose: t0 + iv.vClose
+              });
             }
           }
         }
@@ -2818,72 +2798,166 @@
         if (badge) badge.textContent = `${cnt}/${VALVES} open`;
       }
 
-      // ── Smooth per-column timing (shared by all rendering paths) ──
+      // ════════════════════════════════════════════════════════════
+      // STROKE FUNCTION ANALYSIS
+      // ════════════════════════════════════════════════════════════
+      //
+      // Principle: each stroke (connected run group) is a mathematical
+      // function f(column) → row.  For a diagonal line f is linear;
+      // for a curve f is quadratic or sinusoidal.  We fit this function
+      // globally over the entire stroke — no local regression artefacts,
+      // no cross-feature contamination.
       //
       // Algorithm:
-      //   For each valve column c (0→79):
-      //     Find consecutive "on" pixel runs in that column
-      //     For each run, apply local weighted linear regression on
-      //     ±5 neighbouring columns to find the true fractional row
-      //     (eliminates Bresenham staircase on diagonal edges)
-      //     openMs  = fracRow × rowMs
-      //     closeMs = openMs + run_length × rowMs
-      //
-      // Result: per-column intervals with sub-frame ms precision.
-      // Horizontal lines: all cols same row → regression = same value → no change.
-      // Diagonal lines:   neighbouring cols differ → smooth stagger → curved.
+      //   1. Build per-column run lists  (rMin, rMax for each on-segment)
+      //   2. BFS-group adjacent runs whose rMin values differ by ≤ PROX
+      //      → each group = one "stroke segment"
+      //   3. For each segment fit f(col) → rMin  (linear → quadratic)
+      //   4. openMs(col) = f(col) × rowMs   closeMs = openMs + dur
 
-      function _smoothPixelRow(pixelRows, c, baseRow, radius) {
-        // Weighted least-squares on neighbouring column first-on-rows near baseRow.
-        // rowSearch is deliberately small (3) to prevent regression from pulling data
-        // from a completely different horizontal feature (e.g. top bar contaminating
-        // middle bar at the same column in 'E','F','B' characters).
-        const rowSearch = 3;
-        let sw=0, sx=0, sy=0, sxx=0, sxy=0, n=0;
-        const nR = pixelRows.length;
-        for (let dc = -radius; dc <= radius; dc++) {
-          const cc = c + dc;
-          if (cc < 0 || cc >= VALVES) continue;
-          let bestR = -1, bestD = rowSearch + 1;
-          const r0 = Math.max(0, baseRow - rowSearch);
-          const r1 = Math.min(nR, baseRow + rowSearch + 1);
-          for (let r = r0; r < r1; r++) {
-            if (pixelRows[r][cc]) {
-              const d = Math.abs(r - baseRow);
-              if (d < bestD) { bestD = d; bestR = r; }
-            }
-          }
-          if (bestR < 0) continue;
-          const w = 1 / (Math.abs(dc) + 1);
-          sw  += w;  sx  += w * dc;     sy  += w * bestR;
-          sxx += w * dc * dc;  sxy += w * dc * bestR;  n++;
+      // ── Fit a smooth function to (x,y) point set ──────────────
+      function _fitStrokeFn(pts) {
+        if (!pts.length) return () => 0;
+        if (pts.length === 1) return () => pts[0].y;
+
+        const ys  = pts.map(p => p.y);
+        const yRng = Math.max(...ys) - Math.min(...ys);
+
+        // Horizontal: all cols at same row → constant function
+        if (yRng < 1.5) {
+          const avg = ys.reduce((a,b) => a+b, 0) / ys.length;
+          return () => avg;
         }
-        if (n < 2) return baseRow;
-        const det = sw * sxx - sx * sx;
-        return Math.abs(det) < 1e-6 ? sy / sw : (sxx * sy - sx * sxy) / det;
+
+        // Try linear fit first
+        let sw=0, sx=0, sy=0, sxx=0, sxy=0;
+        for (const {x, y} of pts) {
+          sw++; sx+=x; sy+=y; sxx+=x*x; sxy+=x*y;
+        }
+        const det = sw*sxx - sx*sx;
+        if (Math.abs(det) < 1e-6) return () => sy/sw;
+
+        const a1 = (sw*sxy - sx*sy) / det;      // slope
+        const b1 = (sy - a1*sx) / sw;            // intercept
+
+        // Compute linear residuals
+        let resSum = 0;
+        for (const {x, y} of pts) {
+          const diff = y - (a1*x + b1);
+          resSum += diff * diff;
+        }
+        const rmse = Math.sqrt(resSum / pts.length);
+
+        // If residuals are large (curved stroke), try quadratic
+        if (rmse > 1.5 && pts.length >= 4) {
+          // Quadratic least squares: y = a2*x² + a1*x + b
+          let s0=0, s1=0, s2=0, s3=0, s4=0, sy0=0, sy1=0, sy2=0;
+          for (const {x, y} of pts) {
+            s0+=1; s1+=x; s2+=x*x; s3+=x*x*x; s4+=x*x*x*x;
+            sy0+=y; sy1+=x*y; sy2+=x*x*y;
+          }
+          // 3×3 system [s0 s1 s2; s1 s2 s3; s2 s3 s4] * [b; a1; a2] = [sy0; sy1; sy2]
+          const M = [[s0,s1,s2],[s1,s2,s3],[s2,s3,s4]];
+          const rhs = [sy0, sy1, sy2];
+          const coeffs = _solve3x3(M, rhs);
+          if (coeffs) {
+            const [qb, qa1, qa2] = coeffs;
+            return (x) => qa2*x*x + qa1*x + qb;
+          }
+        }
+
+        return (x) => a1*x + b1;
       }
 
-      // Build per-column interval list with smooth timing.
-      // pixelRows[r][c] = true/false  |  rowMs = ms per pixel row
-      function _buildSmoothColIv(pixelRows, rowMs) {
-        const nR   = pixelRows.length;
-        const colIv = Array.from({length: VALVES}, () => []);
-        for (let c = 0; c < VALVES; c++) {
-          let runStart = -1;
-          for (let r = 0; r <= nR; r++) {
-            const on = r < nR ? pixelRows[r][c] : false;
-            if (on && runStart < 0) {
-              runStart = r;
-            } else if (!on && runStart >= 0) {
-              const runEnd  = r;
-              const dur     = (runEnd - runStart) * rowMs;
-              const frac    = _smoothPixelRow(pixelRows, c, runStart, 5);
-              const openMs  = Math.max(0, Math.round(frac * rowMs));
-              colIv[c].push({ vOpen: openMs, vClose: openMs + dur });
-              runStart = -1;
-            }
+      // Solve 3×3 linear system via Gaussian elimination (returns null if singular)
+      function _solve3x3(M, rhs) {
+        const A = M.map((r, i) => [...r, rhs[i]]);
+        for (let col = 0; col < 3; col++) {
+          let pivot = col;
+          for (let row = col+1; row < 3; row++)
+            if (Math.abs(A[row][col]) > Math.abs(A[pivot][col])) pivot = row;
+          [A[col], A[pivot]] = [A[pivot], A[col]];
+          if (Math.abs(A[col][col]) < 1e-10) return null;
+          for (let row = col+1; row < 3; row++) {
+            const f = A[row][col] / A[col][col];
+            for (let k = col; k <= 3; k++) A[row][k] -= f * A[col][k];
           }
         }
+        const x = [0, 0, 0];
+        for (let i = 2; i >= 0; i--) {
+          x[i] = A[i][3];
+          for (let j = i+1; j < 3; j++) x[i] -= A[i][j] * x[j];
+          x[i] /= A[i][i];
+        }
+        return x;
+      }
+
+      // ── Main entry: build colIv using stroke function analysis ──
+      function _buildSmoothColIv(pixelRows, rowMs) {
+        const nR = pixelRows.length;
+        const NV = VALVES;
+        const PROX = 3;   // max rMin difference to join adjacent runs into same stroke
+
+        // Step 1: per-column run lists
+        const colRuns = [];
+        for (let c = 0; c < NV; c++) {
+          const runs = [];
+          let rs = -1;
+          for (let r = 0; r <= nR; r++) {
+            const on = r < nR ? pixelRows[r][c] : false;
+            if (on && rs < 0) rs = r;
+            else if (!on && rs >= 0) { runs.push({rMin: rs, rMax: r-1}); rs = -1; }
+          }
+          colRuns.push(runs);
+        }
+
+        // Step 2: BFS-group runs into stroke segments
+        const visited = colRuns.map(runs => runs.map(() => false));
+        const segments = [];
+
+        for (let c = 0; c < NV; c++) {
+          for (let i = 0; i < colRuns[c].length; i++) {
+            if (visited[c][i]) continue;
+            const seg = [];
+            const queue = [{c, i}];
+            visited[c][i] = true;
+            while (queue.length) {
+              const {c: qc, i: qi} = queue.shift();
+              const run = colRuns[qc][qi];
+              seg.push({c: qc, rMin: run.rMin, rMax: run.rMax});
+              for (const nc of [qc-1, qc+1]) {
+                if (nc < 0 || nc >= NV) continue;
+                for (let ni = 0; ni < colRuns[nc].length; ni++) {
+                  if (visited[nc][ni]) continue;
+                  if (Math.abs(colRuns[nc][ni].rMin - run.rMin) <= PROX) {
+                    visited[nc][ni] = true;
+                    queue.push({c: nc, i: ni});
+                  }
+                }
+              }
+            }
+            segments.push(seg);
+          }
+        }
+
+        // Step 3: fit function per segment, assign timing
+        const colIv = Array.from({length: NV}, () => []);
+        for (const seg of segments) {
+          seg.sort((a, b) => a.c - b.c);
+          const pts = seg.map(s => ({x: s.c, y: s.rMin}));
+          const fn  = _fitStrokeFn(pts);
+          for (const {c, rMin, rMax} of seg) {
+            const frac   = fn(c);
+            const dur    = (rMax - rMin + 1) * rowMs;
+            const openMs = Math.max(0, Math.round(frac * rowMs));
+            colIv[c].push({vOpen: openMs, vClose: openMs + dur});
+          }
+        }
+
+        // Sort intervals per column by openMs
+        for (let c = 0; c < NV; c++)
+          colIv[c].sort((a, b) => a.vOpen - b.vOpen);
+
         return colIv;
       }
 
