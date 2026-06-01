@@ -209,8 +209,9 @@ private:
         for (int dc = -radius; dc <= radius; dc++) {
             int cc = c + dc;
             if (cc < 0 || cc >= NUM_BOARDS * 8) continue;
-            int bestR = -1, bestD = radius + 3;
-            for (int r = max(0, baseRow-radius-1); r < min(FONT_H, baseRow+radius+2); r++) {
+            const int rowSearch = 3;  // strict: prevents cross-feature contamination
+            int bestR = -1, bestD = rowSearch + 1;
+            for (int r = max(0, baseRow-rowSearch); r < min(FONT_H, baseRow+rowSearch+1); r++) {
                 if (bm[r][cc]) {
                     int d = abs(r - baseRow);
                     if (d < bestD) { bestD = d; bestR = r; }

@@ -1599,8 +1599,9 @@
         for (let dc = -radius; dc <= radius; dc++) {
           const cc = c + dc;
           if (cc < 0 || cc >= VALVES) continue;
-          let bestR = -1, bestD = radius + 3;
-          for (let r = Math.max(0, baseRow-radius-1); r < Math.min(bm.length, baseRow+radius+2); r++) {
+          const rowSrch = 3;
+          let bestR = -1, bestD = rowSrch + 1;
+          for (let r = Math.max(0, baseRow-rowSrch); r < Math.min(bm.length, baseRow+rowSrch+1); r++) {
             if ((bm[r][cc >> 3] >> (7-(cc&7))) & 1) {
               const d = Math.abs(r - baseRow);
               if (d < bestD) { bestD = d; bestR = r; }
@@ -2833,15 +2834,19 @@
       // Diagonal lines:   neighbouring cols differ → smooth stagger → curved.
 
       function _smoothPixelRow(pixelRows, c, baseRow, radius) {
-        // Weighted least-squares on neighbouring column first-on-rows near baseRow
+        // Weighted least-squares on neighbouring column first-on-rows near baseRow.
+        // rowSearch is deliberately small (3) to prevent regression from pulling data
+        // from a completely different horizontal feature (e.g. top bar contaminating
+        // middle bar at the same column in 'E','F','B' characters).
+        const rowSearch = 3;
         let sw=0, sx=0, sy=0, sxx=0, sxy=0, n=0;
         const nR = pixelRows.length;
         for (let dc = -radius; dc <= radius; dc++) {
           const cc = c + dc;
           if (cc < 0 || cc >= VALVES) continue;
-          let bestR = -1, bestD = radius + 3;
-          const r0 = Math.max(0, baseRow - radius - 1);
-          const r1 = Math.min(nR, baseRow + radius + 2);
+          let bestR = -1, bestD = rowSearch + 1;
+          const r0 = Math.max(0, baseRow - rowSearch);
+          const r1 = Math.min(nR, baseRow + rowSearch + 1);
           for (let r = r0; r < r1; r++) {
             if (pixelRows[r][cc]) {
               const d = Math.abs(r - baseRow);
