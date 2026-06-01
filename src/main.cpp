@@ -157,7 +157,7 @@ void setup() {
     Serial.flush();
     g_tcp.begin();
     // Mode switching via WebSocket SET_MODE command
-    g_tcp.onModeChange([](const String& mode, const String& pattern, int sensitivity, int gapMs, bool mirrorH, bool flipV, bool invert, bool perChar) {
+    g_tcp.onModeChange([](const String& mode, const String& pattern, int sensitivity, int gapMs, bool mirrorH, bool flipV, bool invert, bool perChar, int scale) {
         if (mode == "sound") {
             g_mode = MODE_SOUND;
             g_sound.setSensitivity((uint8_t)sensitivity);
@@ -178,6 +178,7 @@ void setup() {
                           rowMs, gapMs, (int)mirrorH, (int)flipV, (int)invert);
         } else if (mode == "text") {
             g_mode = MODE_TEXT;
+            g_text.setScale(scale);
             g_text.setPerChar(perChar);
             g_text.setText(pattern.c_str());
             uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
@@ -186,8 +187,8 @@ void setup() {
             g_text.setMirror(mirrorH);
             g_text.setFlipV(flipV);
             g_text.setInvert(invert);
-            Serial.printf("[MODE] → TEXT \"%s\" row=%ums gap=%dms perChar=%d\n",
-                          pattern.c_str(), rowMs, gapMs, (int)perChar);
+            Serial.printf("[MODE] → TEXT \"%s\" scale=%d row=%ums gap=%dms perChar=%d\n",
+                          pattern.c_str(), scale, rowMs, gapMs, (int)perChar);
         } else if (mode == "effect") {
             g_mode = MODE_EFFECT;
             EffectPattern ep = EFX_RAIN;
@@ -317,6 +318,7 @@ void setup() {
                     if (pattern.isEmpty()) pattern = parseStr(payload, "text");
                     int sensitivity = parseInt_(payload, "sensitivity", 50);
                     int gapMs       = parseInt_(payload, "gapMs", 0);
+                    int scale       = constrain(parseInt_(payload, "scale", 2), 1, 8);
                     bool mirrorH    = payload.indexOf("\"mirrorH\":true")  >= 0;
                     bool flipV      = payload.indexOf("\"flipV\":true")    >= 0;
                     bool invert     = payload.indexOf("\"invert\":true")   >= 0;
@@ -341,6 +343,7 @@ void setup() {
                                       rowMs, gapMs, (int)mirrorH, (int)flipV, (int)invert);
                     } else if (mode == "text") {
                         g_mode = MODE_TEXT;
+                        g_text.setScale(scale);
                         g_text.setPerChar(perChar);
                         g_text.setText(pattern.c_str());
                         uint32_t rowMs = (uint32_t)map(sensitivity, 0, 100, 200, 20);
@@ -349,8 +352,8 @@ void setup() {
                         g_text.setMirror(mirrorH);
                         g_text.setFlipV(flipV);
                         g_text.setInvert(invert);
-                        Serial.printf("[MQTT] SET_MODE → TEXT \"%s\" row=%ums gap=%dms perChar=%d\n",
-                                      pattern.c_str(), rowMs, gapMs, (int)perChar);
+                        Serial.printf("[MQTT] SET_MODE → TEXT \"%s\" scale=%d row=%ums gap=%dms perChar=%d\n",
+                                      pattern.c_str(), scale, rowMs, gapMs, (int)perChar);
                     } else if (mode == "effect") {
                         g_mode = MODE_EFFECT;
                         EffectPattern ep = EFX_RAIN;

@@ -4,8 +4,6 @@
 #include "config.h"
 
 // 5×7 pixel font — same bit convention as clock_mode.h (bit4=leftmost pixel)
-// Index: 0=space, 1-10='0'-'9', 11=':', 12='-', 13='!', 14='?', 15='.', 16=','
-//        17-42 = 'A'-'Z'
 static const uint8_t TEXT_FONT[43][7] = {
     {0x00,0x00,0x00,0x00,0x00,0x00,0x00},  //  0: ' '
     {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E},  //  1: 0
@@ -68,45 +66,37 @@ static uint8_t _textFontIdx(char c) {
 
 class TextMode {
 public:
-    static const int SCALE      = 2;
     static const int FONT_W     = 5;
     static const int FONT_H     = 7;
-    static const int CHAR_W     = FONT_W * SCALE;  // 10 valves
     static const int CHAR_GAP   = 2;
     static const int BLANK_ROWS = 4;
     static const int MAX_CHARS  = 64;
-    // Per-character mode: each char fills most of the display width
-    static const int BIG_SCALE  = 14;               // 5 × 14 = 70 valves per char
+    static const int BIG_SCALE  = 14;
     static const int BIG_CHAR_W = FONT_W * BIG_SCALE;
     static const int BIG_X_OFF  = (NUM_BOARDS * 8 - BIG_CHAR_W) / 2;
 
-    void begin(ValveDriver& v) {
-        _v = &v;
-        setText(" ");
-    }
+    void begin(ValveDriver& v) { _v = &v; setText(" "); }
 
     void setText(const char* text) {
         _numChars = 0;
-        for (int i = 0; text[i] && _numChars < MAX_CHARS; i++) {
+        for (int i = 0; text[i] && _numChars < MAX_CHARS; i++)
             _chars[_numChars++] = _textFontIdx(text[i]);
-        }
         if (_numChars == 0) { _chars[0] = 0; _numChars = 1; }
-        _totalW     = _numChars * (CHAR_W + CHAR_GAP) - CHAR_GAP;
+        _recalc();
         _charIdx    = 0;
         _currentRow = 0;
         _inGap      = false;
-        _initScroll();
-        Serial.printf("[TEXT] setText: %d chars, totalW=%d, xStart=%d, perChar=%d\n",
-                      _numChars, _totalW, _xStart, (int)_perChar);
+        Serial.printf("[TEXT] setText: %d chars scale=%d totalW=%d xStart=%d perChar=%d\n",
+                      _numChars, _scale, _totalW, _xStart, (int)_perChar);
     }
 
-    void setPerChar(bool p) {
-        _perChar    = p;
-        _charIdx    = 0;
+    void setScale(int s) {
+        _scale = constrain(s, 1, 8);
+        _recalc();
         _currentRow = 0;
-        _inGap      = false;
     }
 
+    void setPerChar(bool p)        { _perChar = p; _charIdx = 0; _currentRow = 0; _inGap = false; }
     void setRowInterval(uint32_t ms) { _rowInterval = constrain(ms, 20, 500); }
     void setCycleGap(uint32_t ms)    { _gapMs = ms; }
     void setMirror(bool m)   { _mirror = m; }
@@ -115,15 +105,14 @@ public:
 
     void tick() {
         uint32_t now = millis();
+        const int totalTicks = FONT_H * _scale + BLANK_ROWS;
+
         if (_inGap) {
             if (now - _gapStart >= _gapMs) {
                 _inGap = false;
                 _currentRow = 0;
-                if (_perChar) {
-                    _charIdx = (_charIdx + 1) % _numChars;
-                } else {
-                    _advanceScroll();
-                }
+                if (_perChar) _charIdx = (_charIdx + 1) % _numChars;
+                else          _advanceScroll();
             }
             return;
         }
@@ -131,8 +120,9 @@ public:
         _lastRow = now;
 
         uint8_t bits[NUM_BOARDS] = {};
-        if (_currentRow < FONT_H) {
-            int renderRow = _flipV ? (FONT_H - 1 - _currentRow) : _currentRow;
+        if (_currentRow < FONT_H * _scale) {
+            int fontRow   = _currentRow / _scale;   // scale vertically
+            int renderRow = _flipV ? (FONT_H - 1 - fontRow) : fontRow;
             if (_perChar) _renderCharBig(renderRow, bits);
             else          _renderRow(renderRow, bits);
             if (_invert) for (int i = 0; i < NUM_BOARDS; i++) bits[i] = ~bits[i];
@@ -142,17 +132,14 @@ public:
         _v->write(bits);
 
         _currentRow++;
-        if (_currentRow >= FONT_H + BLANK_ROWS) {
+        if (_currentRow >= totalTicks) {
             if (_gapMs > 0) {
                 _inGap    = true;
                 _gapStart = now;
             } else {
                 _currentRow = 0;
-                if (_perChar) {
-                    _charIdx = (_charIdx + 1) % _numChars;
-                } else {
-                    _advanceScroll();
-                }
+                if (_perChar) _charIdx = (_charIdx + 1) % _numChars;
+                else          _advanceScroll();
             }
         }
     }
@@ -164,6 +151,7 @@ private:
     uint32_t     _lastRow     = 0;
     uint32_t     _gapStart    = 0;
     int          _currentRow  = 0;
+    int          _scale       = 2;   // pixel size: 1–8
     bool         _mirror      = false;
     bool         _flipV       = false;
     bool         _invert      = false;
@@ -175,7 +163,13 @@ private:
     int          _xStart      = 0;
     int          _charIdx     = 0;
 
-    static const int MARQUEE_STEP = CHAR_W + CHAR_GAP;
+    int _charW()    const { return FONT_W * _scale; }
+    int _stepW()    const { return _charW() + CHAR_GAP; }
+
+    void _recalc() {
+        _totalW = _numChars * _stepW() - CHAR_GAP;
+        _initScroll();
+    }
 
     void _initScroll() {
         const int VALVES = NUM_BOARDS * 8;
@@ -187,7 +181,7 @@ private:
     void _advanceScroll() {
         const int VALVES = NUM_BOARDS * 8;
         if (_totalW <= VALVES * 3 / 2) return;
-        _xStart -= MARQUEE_STEP;
+        _xStart -= _stepW();
         if (_xStart <= -_totalW) _xStart = VALVES;
     }
 
@@ -198,26 +192,26 @@ private:
     }
 
     void _renderRow(int row, uint8_t* bits) {
+        const int cw   = _charW();
+        const int step = _stepW();
         for (int v = 0; v < NUM_BOARDS * 8; v++) {
             int tX = v - _xStart;
             if (tX < 0 || tX >= _totalW) continue;
-            int slot    = tX / (CHAR_W + CHAR_GAP);
-            int charOff = tX % (CHAR_W + CHAR_GAP);
-            if (slot >= _numChars || charOff >= CHAR_W) continue;
-            int     px   = charOff / SCALE;
+            int slot    = tX / step;
+            int charOff = tX % step;
+            if (slot >= _numChars || charOff >= cw) continue;
+            int     px   = charOff / _scale;
             uint8_t fRow = TEXT_FONT[_chars[slot]][row];
             if ((fRow >> (FONT_W - 1 - px)) & 1) _setValve(bits, v);
         }
     }
 
-    // Per-character mode: render _chars[_charIdx] at large scale, centered
     void _renderCharBig(int row, uint8_t* bits) {
         uint8_t fRow = TEXT_FONT[_chars[_charIdx]][row];
         for (int px = 0; px < FONT_W; px++) {
             if ((fRow >> (FONT_W - 1 - px)) & 1) {
-                for (int s = 0; s < BIG_SCALE; s++) {
+                for (int s = 0; s < BIG_SCALE; s++)
                     _setValve(bits, BIG_X_OFF + px * BIG_SCALE + s);
-                }
             }
         }
     }

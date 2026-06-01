@@ -589,6 +589,14 @@
               </div>
             </div>
             <label style="font-size:11px;color:var(--muted);">
+              Size <span id="text-size-val">2</span>×
+              <span style="font-size:10px;opacity:.6;">(pixel scale)</span>
+            </label>
+            <input type="range" id="text-size" min="1" max="8" value="2"
+                   oninput="document.getElementById('text-size-val').textContent=this.value"
+                   onchange="sendTextConfig()"
+                   style="width:100%;margin-top:4px;accent-color:var(--primary);">
+            <label style="font-size:11px;color:var(--muted);">
               Speed <span id="text-speed-val">50</span>
             </label>
             <input type="range" id="text-speed" min="0" max="100" value="50"
@@ -1535,17 +1543,19 @@
       }
 
       // Render one row of text at given xStart (valve coordinate of text bitmap start)
-      function _renderTextRow(row, text, xStart) {
-        const FONT_W = 5, SCALE = 2, CHAR_W = FONT_W * SCALE, GAP = 2;
+      function _renderTextRow(row, text, xStart, scale = 2) {
+        const FONT_W = 5, GAP = 2;
+        const CHAR_W = FONT_W * scale;
+        const STEP   = CHAR_W + GAP;
         const bits   = new Uint8Array(CHIPS);
-        const totalW = text.length > 0 ? text.length * (CHAR_W + GAP) - GAP : 0;
+        const totalW = text.length > 0 ? text.length * STEP - GAP : 0;
         for (let v = 0; v < VALVES; v++) {
           const tX      = v - xStart;
           if (tX < 0 || tX >= totalW) continue;
-          const slot    = Math.floor(tX / (CHAR_W + GAP));
-          const charOff = tX % (CHAR_W + GAP);
+          const slot    = Math.floor(tX / STEP);
+          const charOff = tX % STEP;
           if (charOff >= CHAR_W) continue;
-          const px   = Math.floor(charOff / SCALE);
+          const px   = Math.floor(charOff / scale);
           const fRow = _textFontRow(text.charCodeAt(slot), row);
           if ((fRow >> (FONT_W - 1 - px)) & 1) bits[v >> 3] |= (1 << (7 - (v & 7)));
         }
@@ -1582,10 +1592,12 @@
         return bits;
       }
 
-      function startTextLocalSim(rowMs, gapMs, text) {
+      function startTextLocalSim(rowMs, gapMs, text, scale = 2) {
         if (_clockSimTimer) { clearInterval(_clockSimTimer); _clockSimTimer = null; }
         if (!liveSimRunning) startLiveSimulation();
-        const FONT_W = 5, SCALE = 2, CHAR_W = FONT_W * SCALE, GAP = 2;
+        scale = Math.max(1, Math.min(8, scale));
+        const FONT_W = 5, GAP = 2;
+        const CHAR_W = FONT_W * scale;
         const FONT_H = 7, BLANK = 4;
         text = text.toUpperCase();
         const MARQUEE_STEP = CHAR_W + GAP;
@@ -1593,19 +1605,20 @@
         const needsScroll  = !_textPerChar && totalW > VALVES * 1.5;
         let xStart         = needsScroll ? 0 : Math.floor((VALVES - totalW) / 2);
         const gapTicks     = Math.ceil(gapMs / Math.max(rowMs, 1));
-        const totalTicks   = FONT_H + BLANK + gapTicks;
+        const totalTicks   = FONT_H * scale + BLANK + gapTicks;
         let rowIdx  = 0;
-        let charIdx = 0;   // only used in per-char mode
+        let charIdx = 0;
         _clockSimTimer = setInterval(() => {
           if (!liveSimRunning) { clearInterval(_clockSimTimer); _clockSimTimer = null; return; }
           const elapsed = performance.now() - liveSimStartTime;
           let bits;
-          if (rowIdx < FONT_H) {
-            const renderRow = optFlipV ? (FONT_H - 1 - rowIdx) : rowIdx;
+          if (rowIdx < FONT_H * scale) {
+            const fontRow   = Math.floor(rowIdx / scale);  // vertical scale
+            const renderRow = optFlipV ? (FONT_H - 1 - fontRow) : fontRow;
             if (_textPerChar) {
               bits = _renderTextBigRow(renderRow, text.charCodeAt(charIdx));
             } else {
-              bits = _renderTextRow(renderRow, text, xStart);
+              bits = _renderTextRow(renderRow, text, xStart, scale);
             }
             bits = _applyTextTransforms(bits);
             const lbl = _textPerChar
@@ -1615,7 +1628,7 @@
           } else {
             bits = new Uint8Array(CHIPS);
             if (optInv) bits.fill(0xFF);
-            renderFramePreview(bits, rowIdx < FONT_H + BLANK ? 'text — blank' : 'text — gap');
+            renderFramePreview(bits, rowIdx < FONT_H * scale + BLANK ? 'text — blank' : 'text — gap');
           }
           for (let v = 0; v < VALVES; v++) {
             if ((bits[v >> 3] >> (7 - (v & 7))) & 1)
@@ -2291,8 +2304,9 @@
         const text        = document.getElementById('text-input').value || 'WATERFALL';
         const sensitivity = parseInt(document.getElementById('text-speed').value);
         const gapMs       = parseInt(document.getElementById('text-gap-ms').value) || 0;
+        const scale       = parseInt(document.getElementById('text-size').value) || 2;
         sendCommand('SET_MODE', {
-          mode: 'text', text, sensitivity, gapMs, perChar: _textPerChar,
+          mode: 'text', text, sensitivity, gapMs, scale, perChar: _textPerChar,
           mirrorH: optFlipH, flipV: optFlipV, invert: optInv
         }).catch(e => console.warn('sendTextConfig:', e));
       }
@@ -2301,8 +2315,9 @@
         const text        = document.getElementById('text-input').value || 'WATERFALL';
         const sensitivity = parseInt(document.getElementById('text-speed').value);
         const gapMs       = parseInt(document.getElementById('text-gap-ms').value) || 0;
+        const scale       = parseInt(document.getElementById('text-size').value) || 2;
         sendCommand('SET_MODE', {
-          mode: 'text', text, sensitivity, gapMs, perChar: _textPerChar,
+          mode: 'text', text, sensitivity, gapMs, scale, perChar: _textPerChar,
           mirrorH: optFlipH, flipV: optFlipV, invert: optInv
         }).catch(e => console.warn('runText:', e));
         const rowMs = Math.round(200 - sensitivity * 1.8);
@@ -2310,7 +2325,7 @@
           if (!liveSimRunning) startLiveSimulation();
           log('Text running — mirroring ESP output', 'log-ok');
         } else {
-          startTextLocalSim(rowMs, gapMs, text);
+          startTextLocalSim(rowMs, gapMs, text, scale);
         }
       }
 

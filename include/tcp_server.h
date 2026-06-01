@@ -32,8 +32,8 @@ public:
         Serial.printf("[WS] WebSocket server on port %d\n", TCP_PORT);
     }
 
-    // Register callback for SET_MODE: cb(mode, pattern, sensitivity, gapMs, mirrorH, flipV, invert, perChar)
-    void onModeChange(std::function<void(const String&, const String&, int, int, bool, bool, bool, bool)> cb) {
+    // Register callback for SET_MODE: cb(mode, pattern, sensitivity, gapMs, mirrorH, flipV, invert, perChar, scale)
+    void onModeChange(std::function<void(const String&, const String&, int, int, bool, bool, bool, bool, int)> cb) {
         _onModeChange = cb;
     }
 
@@ -85,7 +85,7 @@ private:
     bool             _hasClient  = false;
     uint32_t         _t0         = 0;
     uint32_t         _drainStart = 0;
-    std::function<void(const String&, const String&, int, int, bool, bool, bool, bool)> _onModeChange;
+    std::function<void(const String&, const String&, int, int, bool, bool, bool, bool, int)> _onModeChange;
 
     static const uint16_t RX_BUF_SIZE = FRAME_BYTES * 64;
     uint8_t  _rx[RX_BUF_SIZE];
@@ -137,9 +137,12 @@ private:
             bool flipV   = json.indexOf("\"flipV\":true")   >= 0;
             bool invert  = json.indexOf("\"invert\":true")  >= 0;
             bool perChar = json.indexOf("\"perChar\":true") >= 0;
-            Serial.printf("[WS] CMD SET_MODE mode=%s sens=%d gap=%dms mirror=%d flipV=%d inv=%d perChar=%d\n",
-                          mode.c_str(), sensitivity, gapMs, (int)mirrorH, (int)flipV, (int)invert, (int)perChar);
-            _onModeChange(mode, pattern, sensitivity, gapMs, mirrorH, flipV, invert, perChar);
+            int  scale   = 2;
+            int  scidx   = json.indexOf("\"scale\":");
+            if (scidx >= 0) scale = constrain(json.substring(scidx + 8).toInt(), 1, 8);
+            Serial.printf("[WS] CMD SET_MODE mode=%s sens=%d gap=%dms scale=%d\n",
+                          mode.c_str(), sensitivity, gapMs, scale);
+            _onModeChange(mode, pattern, sensitivity, gapMs, mirrorH, flipV, invert, perChar, scale);
         }
     }
 

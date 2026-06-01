@@ -5,18 +5,19 @@
 // ============================================================
 //  PumpController — giám sát mức nước + điều khiển bơm
 //
-//  Cảm biến: float switch, INPUT_PULLUP, phao đảo chiều
-//    HIGH = kích hoạt (có nước / nổi lên)
+//  Cảm biến: float switch, INPUT_PULLUP
+//    GPIO LOW  = sensor kích hoạt  (low: nước thấp | high: nước đầy)
+//    GPIO HIGH = sensor không kích hoạt
 //
 //  State machine AUTO:
 //
-//    IDLE ──(low 0→1)──► PUMPING ──(high=1 | timeout)──► WAIT_RESET
-//      ▲                                                       │
-//      └──────────────────────(low → 0)───────────────────────┘
+//    IDLE ──(low=1)──► PUMPING ──(high=1 | timeout)──► WAIT_RESET
+//      ▲                                                      │
+//      └─────────────────────(low=0)──────────────────────────┘
 //
-//    IDLE:       bơm tắt, chờ cảm biến thấp kích hoạt (cạnh lên)
-//    PUMPING:    bơm chạy, dừng khi cảm biến cao kích hoạt / timeout
-//    WAIT_RESET: bơm tắt, chờ cảm biến thấp về 0 trước khi bơm lại
+//    IDLE:       bơm tắt, chờ low=1 (level-triggered, kể cả lúc khởi động)
+//    PUMPING:    bơm chạy, dừng khi high=1 hoặc timeout an toàn
+//    WAIT_RESET: bơm tắt, chờ low=0 (nước vừa qua cảm biến thấp) trước khi bơm lại
 //
 //  Manual mode: bơm ON/OFF theo lệnh ngoài, bỏ qua cảm biến
 // ============================================================
@@ -36,8 +37,8 @@ public:
     }
 
     void tick() {
-        bool low  = (digitalRead(PIN_LEVEL_LOW)  == HIGH);
-        bool high = (digitalRead(PIN_LEVEL_HIGH) == HIGH);
+        bool low  = (digitalRead(PIN_LEVEL_LOW)  == LOW);    // NC: LOW=phao xuống=nước thấp=cần bơm
+        bool high = (digitalRead(PIN_LEVEL_HIGH) == HIGH);  // NC: HIGH=phao nổi=nước đầy=dừng bơm
 
         // Debounce 2-sample
         _stableLow  = (low  == _prevLow)  ? low  : _stableLow;
@@ -66,8 +67,7 @@ public:
             _drive(false);
         } else {
             // Vào AUTO: reset state, không bơm ngay dù low đang active
-            _pumpState   = PS_IDLE;
-            _prevAutoLow = _levelLow;   // coi như trạng thái hiện tại là "đã biết"
+            _pumpState = PS_IDLE;
             _drive(false);
             Serial.printf("[PUMP] AUTO reset — state=IDLE low=%d high=%d\n",
                           _levelLow, _levelHigh);
@@ -109,10 +109,9 @@ private:
     bool     _stableHigh  = false;
 
     // Pump state
-    bool      _pumpOn     = false;
-    Mode      _mode       = AUTO;
-    PumpState _pumpState  = PS_IDLE;
-    bool      _prevAutoLow = false;   // lịch sử cảm biến thấp để phát cạnh lên
+    bool      _pumpOn      = false;
+    Mode      _mode        = AUTO;
+    PumpState _pumpState   = PS_IDLE;
     uint32_t  _pumpStartMs = 0;
 
     // Change flags for MQTT/WS
@@ -122,16 +121,16 @@ private:
     // ── State machine AUTO ────────────────────────────────────
     void _autoTick() {
         uint32_t now = millis();
-        bool lowRising = (_levelLow && !_prevAutoLow);   // cạnh lên cảm biến thấp
 
         switch (_pumpState) {
 
             case PS_IDLE:
-                // Bơm khi cảm biến thấp vừa kích hoạt (0 → 1)
-                if (lowRising) {
+                // Bơm ngay khi cảm biến thấp đang kích hoạt (level-triggered)
+                // Xử lý cả trường hợp nước đã thấp lúc khởi động
+                if (_levelLow) {
                     _drive(true);
                     _pumpState = PS_PUMPING;
-                    Serial.println("[PUMP] LOW ↑ → PUMPING");
+                    Serial.println("[PUMP] LOW active → PUMPING");
                 }
                 break;
 
@@ -157,7 +156,6 @@ private:
                 break;
         }
 
-        _prevAutoLow = _levelLow;   // cập nhật lịch sử sau mỗi tick
     }
 
     void _drive(bool on) {
