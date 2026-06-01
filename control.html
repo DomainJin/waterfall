@@ -3704,7 +3704,15 @@
 
       // Build run list from vis[] snapshot, render bodies (with optional blur) then drops.
       // vis[col]: null | { vOpen, tTail, yFront (0-1 norm), yTail (0-1 norm) }
+      //
+      // Grouping: use visual position proximity (not exact vOpen equality).
+      // Smooth timing gives each column a slightly different vOpen — exact match
+      // would prevent grouping. Instead, group adjacent columns whose water is
+      // at approximately the same height (yFront within 6% of screen height).
       function _renderRuns(ctx, vis, colW, dropR, W, H, bg, blurPx) {
+        const Y_TOL  = 0.06;   // yFront must be within 6% of screen height
+        const TT_TOL = 120;    // tTail must be within 120ms (≈1.5 rows at 80ms)
+
         // Build runs
         const runs = [];
         let c = 0;
@@ -3712,7 +3720,16 @@
           if (!vis[c]) { c++; continue; }
           const v0  = vis[c];
           let   end = c;
-          while (end + 1 < VALVES && vis[end+1] && vis[end+1].vOpen === v0.vOpen) end++;
+          while (end + 1 < VALVES && vis[end+1]) {
+            const nx   = vis[end+1];
+            // Same open/closed state AND similar visual position
+            const sameFlow = (nx.tTail <= 0) === (v0.tTail <= 0);
+            if (sameFlow &&
+                Math.abs(nx.yFront - v0.yFront) < Y_TOL &&
+                Math.abs(nx.tTail  - v0.tTail)  < TT_TOL) {
+              end++;
+            } else break;
+          }
           const yTop = Math.max(8, v0.yTail * H);
           const yBot = Math.min(H, v0.yFront * H - dropR * 0.5);
           runs.push({ col: c, end, v0, yTop, yBot });
