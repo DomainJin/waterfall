@@ -2817,6 +2817,71 @@
         if (badge) badge.textContent = `${cnt}/${VALVES} open`;
       }
 
+      // ── Smooth per-column timing (shared by all rendering paths) ──
+      //
+      // Algorithm:
+      //   For each valve column c (0→79):
+      //     Find consecutive "on" pixel runs in that column
+      //     For each run, apply local weighted linear regression on
+      //     ±5 neighbouring columns to find the true fractional row
+      //     (eliminates Bresenham staircase on diagonal edges)
+      //     openMs  = fracRow × rowMs
+      //     closeMs = openMs + run_length × rowMs
+      //
+      // Result: per-column intervals with sub-frame ms precision.
+      // Horizontal lines: all cols same row → regression = same value → no change.
+      // Diagonal lines:   neighbouring cols differ → smooth stagger → curved.
+
+      function _smoothPixelRow(pixelRows, c, baseRow, radius) {
+        // Weighted least-squares on neighbouring column first-on-rows near baseRow
+        let sw=0, sx=0, sy=0, sxx=0, sxy=0, n=0;
+        const nR = pixelRows.length;
+        for (let dc = -radius; dc <= radius; dc++) {
+          const cc = c + dc;
+          if (cc < 0 || cc >= VALVES) continue;
+          let bestR = -1, bestD = radius + 3;
+          const r0 = Math.max(0, baseRow - radius - 1);
+          const r1 = Math.min(nR, baseRow + radius + 2);
+          for (let r = r0; r < r1; r++) {
+            if (pixelRows[r][cc]) {
+              const d = Math.abs(r - baseRow);
+              if (d < bestD) { bestD = d; bestR = r; }
+            }
+          }
+          if (bestR < 0) continue;
+          const w = 1 / (Math.abs(dc) + 1);
+          sw  += w;  sx  += w * dc;     sy  += w * bestR;
+          sxx += w * dc * dc;  sxy += w * dc * bestR;  n++;
+        }
+        if (n < 2) return baseRow;
+        const det = sw * sxx - sx * sx;
+        return Math.abs(det) < 1e-6 ? sy / sw : (sxx * sy - sx * sxy) / det;
+      }
+
+      // Build per-column interval list with smooth timing.
+      // pixelRows[r][c] = true/false  |  rowMs = ms per pixel row
+      function _buildSmoothColIv(pixelRows, rowMs) {
+        const nR   = pixelRows.length;
+        const colIv = Array.from({length: VALVES}, () => []);
+        for (let c = 0; c < VALVES; c++) {
+          let runStart = -1;
+          for (let r = 0; r <= nR; r++) {
+            const on = r < nR ? pixelRows[r][c] : false;
+            if (on && runStart < 0) {
+              runStart = r;
+            } else if (!on && runStart >= 0) {
+              const runEnd  = r;
+              const dur     = (runEnd - runStart) * rowMs;
+              const frac    = _smoothPixelRow(pixelRows, c, runStart, 5);
+              const openMs  = Math.max(0, Math.round(frac * rowMs));
+              colIv[c].push({ vOpen: openMs, vClose: openMs + dur });
+              runStart = -1;
+            }
+          }
+        }
+        return colIv;
+      }
+
       // ── Frame sequence ────────────────────────────────────────
       function getAdv() {
         return parseInt(document.getElementById("adv").value) || 80;
@@ -2839,36 +2904,54 @@
 
       function buildFrameSequence() {
         if (!pixelRows.length) return;
-        const adv = getAdv(),
-          h = getH();
-        const tfall = Math.round(Math.sqrt((2 * h) / G) * 1000);
+        const adv   = getAdv();
+        const tfall = Math.round(Math.sqrt((2 * getH()) / G) * 1000);
 
-        frames = [];
-        for (let row = 0; row < pixelRows.length; row++) {
-          // ts = khi nào ESP mở van, để nước đến đáy đúng lúc row*adv
-          // ts = row*adv - tfall, nhưng không âm (row đầu mở ngay lúc 0)
-          const ts = Math.max(0, row * adv - tfall);
-          const bits = new Uint8Array(CHIPS);
-          for (let v = 0; v < VALVES; v++)
-            if (pixelRows[row][v]) {
-              const byteIdx = Math.floor(v / 8);
-              const reversedByteIdx = CHIPS - 1 - byteIdx; // Reverse byte order for daisy-chain
-              bits[reversedByteIdx] |= 1 << (v % 8);
-            }
-          frames.push({ ts_ms: ts, bits });
+        // ── Smooth per-column timing ──────────────────────────────
+        // Each valve gets its own precise timestamp via linear regression.
+        // Converts to sorted (ts_ms, bits) frames for ESP32 scheduler.
+        const colIv = _buildSmoothColIv(pixelRows, adv);
+
+        // Collect all open/close events with tfall compensation
+        const events = [];
+        for (let c = 0; c < VALVES; c++) {
+          for (const iv of colIv[c]) {
+            // Shift open time earlier by tfall so water arrives at correct position
+            const tOpen  = Math.max(0, iv.vOpen  - tfall);
+            const tClose = Math.max(0, iv.vClose - tfall);
+            events.push({t: tOpen,  col: c, open: true });
+            events.push({t: tClose, col: c, open: false});
+          }
         }
-        // All-off frame ở cuối
-        frames.push({
-          ts_ms: frames[frames.length - 1].ts_ms + adv * 2,
-          bits: new Uint8Array(CHIPS),
-        });
+        // Sort: ascending time, opens before closes at same time
+        events.sort((a, b) => a.t !== b.t ? a.t - b.t : (a.open ? -1 : 1));
+
+        // Build incremental valve-state frames
+        const state = new Uint8Array(CHIPS);
+        frames = [{ts_ms: 0, bits: new Uint8Array(CHIPS)}];
+        let i = 0;
+        while (i < events.length) {
+          const t = events[i].t;
+          while (i < events.length && events[i].t === t) {
+            const c = events[i].col;
+            // Reversed byte order for daisy-chain (matches original encoding)
+            const revByte = CHIPS - 1 - Math.floor(c / 8);
+            if (events[i].open) state[revByte] |=  (1 << (c % 8));
+            else                state[revByte] &= ~(1 << (c % 8));
+            i++;
+          }
+          frames.push({ts_ms: t, bits: new Uint8Array(state)});
+        }
+        // All-off sentinel
+        const maxT = events.length ? events[events.length - 1].t : 0;
+        frames.push({ts_ms: maxT + adv * 2, bits: new Uint8Array(CHIPS)});
 
         document.getElementById("rows-d").value = pixelRows.length;
         document.getElementById("frames-d").value = frames.length;
         document.getElementById("btn-sim").disabled = false;
         document.getElementById("btn-send").disabled = !connected;
         log(
-          `Built ${frames.length} frames, t_fall=${tfall}ms, adv=${adv}ms`,
+          `Smooth: ${frames.length} events from ${pixelRows.length} rows, t_fall=${tfall}ms, adv=${adv}ms`,
           "log-ok",
         );
         updateAnimationInfo();
@@ -3685,19 +3768,8 @@
         const tfall = Math.sqrt((2 * h_cm) / G) * 1000;
         const totalDur = nRows * adv + tfall * 2 + 2000;
 
-        // Build colIv: per-column valve open intervals
-        const colIv = Array.from({ length: VALVES }, () => []);
-        for (let row = 0; row < nRows; row++) {
-          const vOpen = row * adv,
-            vClose = (row + 1) * adv;
-          for (let col = 0; col < VALVES; col++) {
-            if (!pixelRows[row][col]) continue;
-            const iv = colIv[col];
-            if (iv.length && vOpen <= iv[iv.length - 1].vClose) {
-              iv[iv.length - 1].vClose = vClose;
-            } else iv.push({ vOpen, vClose });
-          }
-        }
+        // Smooth per-column timing — each valve gets sub-frame ms offset
+        const colIv = _buildSmoothColIv(pixelRows, adv);
 
         log(
           `tfall=${tfall.toFixed(0)}ms adv=${adv}ms dur=${(totalDur / 1000).toFixed(1)}s`,
