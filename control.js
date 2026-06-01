@@ -590,6 +590,28 @@ const Simulation = {
   }
 };
 
+// ── Pattern preview UI update ───────────────────────────────
+function updatePatternPreview() {
+  const type = document.getElementById("pattern-type").value;
+  const density = parseInt(document.getElementById("pattern-density").value) / 100;
+  const pattern = Pattern.generate(type, 8, State.VALVES, density);
+  if (pattern.length) {
+    const firstRow = new Array(State.VALVES);
+    for (let v = 0; v < State.VALVES; v++) {
+      firstRow[v] = (pattern[0][State.CHIPS - 1 - Math.floor(v / 8)] >> (v % 8)) & 1;
+    }
+    Simulation.renderPreview(firstRow, `${type} — preview`);
+  }
+  document.getElementById("pattern-density-val").textContent = (density * 100).toFixed(0) + "%";
+}
+
+// ── Threshold update ──────────────────────────────────────
+function onThr() {
+  State.thrVal = parseInt(document.getElementById("thr").value);
+  document.getElementById("thr-lbl").textContent = State.thrVal;
+  ImageProcessor.reprocess();
+}
+
 // ── Mode Module ─────────────────────────────────────────────
 const Mode = {
   set(mode) {
